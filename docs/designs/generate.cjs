@@ -7,9 +7,10 @@ function fire(x,y,active) {return `<g transform="translate(${x} ${y}) scale(.8)"
 function ledger(activeId='You') {
   let body=`<rect x=".5" y=".5" width="223" height="213" rx="7" fill="#181b20" stroke="#30353d"/>`+t(12,21,'GAME 12','small muted')+t(188,21,'07:42','small muted','end')+`<g transform="translate(201 13)" class="icon"><path d="M0 3h10M0 8h10"/><circle cx="3" cy="3" r="1.5" fill="#181b20"/><circle cx="7" cy="8" r="1.5" fill="#181b20"/></g>`+line(32);
   body+=t(12,49,'SQUAD','small muted')+t(156,49,'GAME','small muted','end')+t(212,49,'STREAK','small muted','end');
-  [['You',8],['Nova',9],['Ash',6]].forEach(([name,count],i)=>{
+  [['You',8],['Nova',9],['Ash',6]].sort((a,b)=>b[1]-a[1]).forEach(([name,count],i)=>{
     const y=68+i*18,active=name===activeId,run=active?(name==='You'?3:2):0;
-    body+=t(12,y,name,name==='You'?'':'muted')+t(156,y,count,'num','end')+fire(180,y-12,active)+`<text x="212" y="${y}" text-anchor="end" class="num" style="fill:${active?'#c99465':'#939da9'}">${run}</text>`;
+    const crown = name==='Nova' ? `<g transform="translate(12 ${y-11}) scale(.8)" class="icon"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></g>` : '';
+    body+=crown+t(30,y,name,name==='You'?'':'muted')+t(156,y,count,'num','end')+(active ? fire(180,y-12,true)+`<text x="212" y="${y}" text-anchor="end" class="num" style="fill:#c99465">${run}</text>` : '');
   });
   body+=line(114)+t(12,132,'CHESTS','small muted')+t(144,132,'YOU','small muted','end')+t(212,132,'TEAM','small muted','end');
   [['This game','8','23'],['Chests / match','13.45','38.73']].forEach(([label,you,team],i)=>{

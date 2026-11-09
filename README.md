@@ -4,7 +4,7 @@ A Windows Electron MiniHUD for tracking chest openings with your squad.
 
 ## Install
 
-Download `ChestTracker-Setup-1.1.2.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
+Download `ChestTracker-Setup-1.1.3.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
 
 The current build is unsigned. Windows may show its usual unknown-publisher prompt.
 
@@ -44,4 +44,4 @@ See [relay/README.md](relay/README.md). The relay supports up to 16 players per 
 
 ## Design concepts
 
-[Selected Ledger SVG reference](docs/designs/minihud-concepts.svg): 224 × 214, with active and inactive streak examples. The HUD shows the squad’s game counts and fire streak icons, personal/team chests this game, chests per match, and one shared token chance. Inactive flames are grey. Lifetime/session/hourly details and explanatory footers are omitted from the HUD. This selected layout is implemented in version 1.1.2; earlier A/B references are retained as historical proposals.
+[Selected Ledger SVG reference](docs/designs/minihud-concepts.svg): 224 × 214. The HUD shows squad game counts, one fire streak indicator beside the current holder, a crown to the left of the game leader’s name, personal/team chests this game, chests per match, and one shared token chance. Before a streak starts, one grey idle flame appears beside you. Lifetime/session/hourly details and explanatory footers are omitted from the HUD. This layout is implemented in version 1.1.3; earlier A/B references are retained as historical proposals.

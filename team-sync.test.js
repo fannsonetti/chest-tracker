@@ -120,7 +120,7 @@ test('scoreboard ranks current personal counts and replaces stale local network 
   assert.deepEqual(JSON.parse(t.run('JSON.stringify(rankedPlayers().map(p => p.chests))')), [6, 5, 2]);
   t.run('renderRoster()');
   assert.equal(t.run("$('roster').innerHTML.includes('Party · personal chests')"), false);
-  assert.equal(t.run("$('roster').innerHTML.includes('class=\"crown\"')"), false);
+  assert.equal(t.run("$('roster').innerHTML.includes('class=\"crown\"')"), true);
   assert.equal(t.run("$('roster').innerHTML.includes('Personal 5, team 5')"), false);
   assert.equal(t.run("$('roster').innerHTML.includes('Inactive opening streak: 0')"), true);
   t.run("bump('chests', 2); renderRoster()");
@@ -136,9 +136,25 @@ test('the roster uses the authoritative active streak, with no per-player token 
   t.run('renderRoster()');
   assert.equal(t.run("$('roster').innerHTML.includes('streak active')"),true);
   assert.equal(t.run("$('roster').innerHTML.includes('Active opening streak: 3')"),true);
+  assert.equal(t.run("($('roster').innerHTML.match(/class=\"streak/g)||[]).length"),1);
+  assert.equal(t.run("$('roster').innerHTML.includes('Inactive opening streak')"),false);
   assert.equal(t.run("$('roster').innerHTML.includes('Token')"),false);
   t.roster([{...peer(5),id,streak:0},{...peer(10),streak:1}]);
   assert.equal(t.run('rankedPlayers().find(p=>p.id===s.id).streak'),0);
+  t.run('renderRoster()');
+  assert.equal(t.run("($('roster').innerHTML.match(/class=\"streak/g)||[]).length"),1);
+  assert.equal(t.run("$('roster').innerHTML.includes('Active opening streak: 1')"),true);
+});
+
+test('only one crown is shown for tied leaders and no crown is shown before any openings', () => {
+  const t=tracker();
+  t.run('renderRoster()');
+  assert.equal(t.run("$('roster').innerHTML.includes('class=\"crown\"')"),false);
+  t.run("bump('chests',5)");
+  t.roster([peer(5)]);
+  t.run('renderRoster()');
+  assert.equal(t.run("($('roster').innerHTML.match(/class=\"crown\"/g)||[]).length"),1);
+  assert.equal(t.run("($('roster').innerHTML.match(/class=\"streak/g)||[]).length"),1);
 });
 
 test('overtake notifications fire on crossings, excluding joins, repeats and match resets', () => {

@@ -165,6 +165,9 @@
   #roster .roster-head span:not(:first-child) { text-align:right; }
   #roster .p { height:22px; }
   #roster .p .n { min-width:0; font-weight:500; }
+  #roster .p .name { display:flex; align-items:center; gap:5px; }
+  .leader-slot { display:inline-flex; width:13px; flex:none; }
+  .player-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .streak { display:flex; align-items:center; justify-content:flex-end; gap:4px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
   .streak.active { color:#c99465; }
   .streak svg { width:13px; height:15px; fill:none; stroke:currentColor; stroke-width:1.15; stroke-linecap:round; stroke-linejoin:round; }
@@ -442,11 +445,16 @@ function renderRoster() {
   el.hidden = s.hidden;
   if (el.hidden) return;
   const players = rankedPlayers(), most = players[0].chests;
+  const leaderId = most > 0 ? players[0].id : null;
+  const active = players.find(p => p.streak > 0);
+  const streakOwner = active || players.find(p => p.id === s.id);
   const rows = players.map(p => {
     const mine = p.id === s.id;
-    const leader = most > 0 && p.chests === most;
-    return '<div class="p' + (mine ? ' me' : '') + (leader ? ' leader' : '') + '"><span class="name">' + esc(mine ? 'You' : p.name) + '</span>' +
-      '<span class="n">' + esc(p.chests) + '</span><span class="streak' + (p.streak > 0 ? ' active' : '') + '" aria-label="' + (p.streak > 0 ? 'Active' : 'Inactive') + ' opening streak: ' + (p.streak || 0) + '">' + FIRE + '<span>' + (p.streak || 0) + '</span></span></div>';
+    const leader = p.id === leaderId;
+    const showStreak = p.id === streakOwner?.id;
+    const run = active ? active.streak : 0;
+    return '<div class="p' + (mine ? ' me' : '') + (leader ? ' leader' : '') + '"><span class="name"><span class="leader-slot">' + (leader ? CROWN : '') + '</span><span class="player-name">' + esc(mine ? 'You' : p.name) + '</span></span>' +
+      '<span class="n">' + esc(p.chests) + '</span>' + (showStreak ? '<span class="streak' + (active ? ' active' : '') + '" aria-label="' + (active ? 'Active' : 'Inactive') + ' opening streak: ' + run + '">' + FIRE + '<span>' + run + '</span></span>' : '<span></span>') + '</div>';
   });
   el.innerHTML = '<div class="roster-head"><span>SQUAD</span><span>GAME</span><span>STREAK</span></div>' + rows.join('');
 }
