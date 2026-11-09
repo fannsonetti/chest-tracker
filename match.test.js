@@ -6,8 +6,11 @@ test('another player breaks a streak; corrections undo openings; baseline and re
   s.observe('a',20); s.observe('b',10);
   s.observe('a',23); s.observe('b',11); s.observe('a',25);
   assert.equal(s.longest('a'),3); assert.equal(s.longest('b'),1);
+  assert.equal(s.current('a'),2); assert.equal(s.current('b'),0);
+  assert.deepEqual(s.live([{id:'a'},{id:'b'}]).map(p=>p.streak),[2,0]);
   s.observe('b',10);
   assert.equal(s.longest('a'),5);
+  assert.equal(s.current('a'),5);
   s.observe('a',24); assert.equal(s.longest('a'),4);
   s.reset(); s.observe('a',0); s.observe('a',2); assert.equal(s.longest('a'),2);
 });

@@ -120,11 +120,25 @@ test('scoreboard ranks current personal counts and replaces stale local network 
   assert.deepEqual(JSON.parse(t.run('JSON.stringify(rankedPlayers().map(p => p.chests))')), [6, 5, 2]);
   t.run('renderRoster()');
   assert.equal(t.run("$('roster').innerHTML.includes('Party · personal chests')"), false);
-  assert.equal(t.run("$('roster').innerHTML.includes('class=\"crown\"')"), true);
-  assert.equal(t.run("$('roster').innerHTML.includes('Personal 5, team 5')"), true);
+  assert.equal(t.run("$('roster').innerHTML.includes('class=\"crown\"')"), false);
+  assert.equal(t.run("$('roster').innerHTML.includes('Personal 5, team 5')"), false);
+  assert.equal(t.run("$('roster').innerHTML.includes('Inactive opening streak: 0')"), true);
   t.run("bump('chests', 2); renderRoster()");
   assert.equal(t.run('rankedPlayers()[0].id === s.id'), true);
   assert.equal(t.run("$('roster').innerHTML.includes('p me leader')"), true);
+});
+
+test('the roster uses the authoritative active streak, with no per-player token chance', () => {
+  const t = tracker();
+  t.run("bump('chests',5)");
+  const id=t.run('s.id');
+  t.roster([{...peer(5),id,streak:3},{...peer(9),streak:0}]);
+  t.run('renderRoster()');
+  assert.equal(t.run("$('roster').innerHTML.includes('streak active')"),true);
+  assert.equal(t.run("$('roster').innerHTML.includes('Active opening streak: 3')"),true);
+  assert.equal(t.run("$('roster').innerHTML.includes('Token')"),false);
+  t.roster([{...peer(5),id,streak:0},{...peer(10),streak:1}]);
+  assert.equal(t.run('rankedPlayers().find(p=>p.id===s.id).streak'),0);
 });
 
 test('overtake notifications fire on crossings, excluding joins, repeats and match resets', () => {

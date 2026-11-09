@@ -29,6 +29,8 @@ class OpeningStreaks {
     }
   }
   longest(id) { return Math.max(0,...this.runs.filter(r=>r.id===id).map(r=>r.n)); }
+  current(id) { const last = this.runs.at(-1); return last?.id === id ? last.n : 0; }
+  live(players) { return players.map(p=>({ ...p, streak:this.current(p.id), bestStreak:this.longest(p.id) })); }
   recap(players) { return players.map(p=>({ ...p, bestStreak:this.longest(p.id) })).sort((a,b)=>b.chests-a.chests || a.name.localeCompare(b.name)); }
 }
 function recapPlayers(players) {

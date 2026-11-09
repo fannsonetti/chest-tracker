@@ -20,7 +20,7 @@ function createRelay() {
       matchStart:Math.max(0, Number(p.matchStart) || 0), streak:count(p.streak), bestStreak:count(p.bestStreak) };
   }
   function broadcast(room) {
-    const players = [...room.members.values()];
+    const players = room.streaks.live([...room.members.values()]);
     for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, players });
   }
   function detach(c) {

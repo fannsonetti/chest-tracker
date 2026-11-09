@@ -158,6 +158,35 @@
   #recap .btn { width:100%; height:22px; margin-top:3px; font-size:10px; color:var(--muted); }
   @keyframes reveal { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
   @media (prefers-reduced-motion:reduce) { #recap { animation:none; } }
+  /* Selected Ledger layout: squad first, only the useful shared statistics. */
+  #roster { border:0; margin:0 0 9px; padding:5px 0 8px; border-bottom:1px solid var(--line); }
+  #roster .roster-head, #roster .p { display:grid; grid-template-columns:minmax(0,1fr) 42px 48px; gap:8px; }
+  #roster .roster-head { font-size:9px; color:var(--muted); margin-bottom:5px; }
+  #roster .roster-head span:not(:first-child) { text-align:right; }
+  #roster .p { height:22px; }
+  #roster .p .n { min-width:0; font-weight:500; }
+  .streak { display:flex; align-items:center; justify-content:flex-end; gap:4px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .streak.active { color:#c99465; }
+  .streak svg { width:13px; height:15px; fill:none; stroke:currentColor; stroke-width:1.15; stroke-linecap:round; stroke-linejoin:round; }
+  #statHead { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:9px; margin:0 0 4px; }
+  #statHead .columns { display:flex; gap:9px; }
+  #statHead .columns span { width:44px; text-align:right; }
+  #panel.compact { padding:4px 10px 8px; }
+  .compact #matchNow { display:inline; font-size:10px; }
+  .compact .row { height:24px; }
+  .compact .row .label { display:block; font-size:11px; }
+  .compact .row .glyph { display:none; }
+  .compact #roster .p { height:22px; font-size:11px; }
+  .row > .pair { gap:5px; }
+  .row > .pair > .pair { width:44px; justify-content:flex-end; position:relative; }
+  .row .pair .val { font-size:12px; font-weight:500; flex:initial; }
+  .row .slash { width:0; overflow:hidden; }
+  .row .pair .ctl { position:absolute; top:-5px; }
+  .row .pair .ctl:first-child { left:0; }
+  .row .pair .ctl:last-child { right:-10px; }
+  .row .pair .ctl button { width:10px; height:12px; }
+  .row.token { border-top:1px solid var(--line); margin-top:5px; padding-top:7px; height:31px; }
+  .row.token .val { font-size:11px; color:var(--fg); }
 </style></head>
 <body><div id="panel">
   <header id="bar">
@@ -170,8 +199,9 @@
     </nav>
   </header>
 
-  <div id="rows"></div>
   <section id="roster" hidden></section>
+  <div id="statHead"></div>
+  <div id="rows"></div>
   <div id="notice" role="status" aria-live="polite" hidden></div>
   <div id="recap" role="status" aria-live="polite" hidden></div>
 
@@ -295,14 +325,14 @@ function resetTeammateCredits() {
 const total = () => s.teamChests;
 // Add new stats here. `field` adds +/- buttons on hover.
 const STATS = [
-  { key:'chests',     label:'Chests',       val:() => paired(s.chests, s.teamChests, true),
+  { key:'chests',     label:'This game',       val:() => paired(s.cur.chests, s.cur.teamChests, true),
     icon:'<path d="M2 6.5h10V12H2z"/><path d="M2 6.5V5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 12 5v1.5"/><path d="M7 6.5v2"/>' },
-  { key:'cpm',        label:'CPM',    val:() => paired(s.matches ? (s.chests / s.matches).toFixed(2) : '–', s.matches ? (total() / s.matches).toFixed(2) : '–'),
+  { key:'cpm',        label:'Chests / match',    val:() => paired(s.matches ? (s.chests / s.matches).toFixed(2) : '–', s.matches ? (total() / s.matches).toFixed(2) : '–'),
     icon:'<path d="M3.5 12.5V2"/><path d="M3.5 2.5h7l-1.6 2.6 1.6 2.6h-7"/>' },
   { key:'token',      label:'Token chance', val:() => (100 * (1 - Math.pow(1 - 1 / s.odds, total()))).toFixed(4) + '%',
     icon:'<path d="M7 1.5l5 4.2L7 12.5 2 5.7z"/><path d="M2 5.7h10M5 5.7L7 12.5l2-6.8"/>' },
 ];
-const COMPACT_W = 184, FULL_W = 248;
+const COMPACT_W = 224, FULL_W = 248;
 
 function paired(personal, team, controls = false) {
   const value = (n, field, label) => '<span class="pair" title="' + label + '">' +
@@ -316,9 +346,13 @@ function paired(personal, team, controls = false) {
 }
 
 const CROWN = '<svg class="crown" viewBox="0 0 16 16" role="img" aria-label="Match leader"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
+const FIRE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.5 1.5c.8 3-2.8 4.1-2.1 6.4C5 7.4 4.3 6.5 4.2 5.4 2.8 7 2 8.5 2 10a6 6 0 0 0 12 0c0-3-2.4-5.3-5.5-8.5Z"/><path d="M8 9c1.5 1.1 2 2 2 3a2 2 0 0 1-4 0c0-.8.6-1.9 2-3Z"/></svg>';
 function rankedPlayers() {
   const players = net.players.filter(p => p.id !== s.id);
-  players.push({ id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start, streak:s.streak, bestStreak:s.bestStreak });
+  const own = net.players.find(p => p.id === s.id);
+  players.push({ id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start,
+    streak:['host','client'].includes(net.status) ? (own?.streak || 0) : s.cur.chests,
+    bestStreak:own?.bestStreak || s.cur.chests });
   return players.sort((a, b) => b.chests - a.chests || String(a.id).localeCompare(String(b.id)));
 }
 
@@ -373,16 +407,22 @@ function when(ts) {
 
 // ---------- Rendering ----------
 function renderBar() {
-  $('matchNo').textContent = 'Match ' + (s.matches + 1);
-  const c = s.cur.teamChests;
-  $('matchNow').textContent = c ? plural(c, 'chest') : '';
+  $('matchNo').textContent = 'Game ' + (s.matches + 1);
+  renderClock();
   for (const b of document.querySelectorAll('nav .icon')) b.classList.toggle('on', b.dataset.view === view);
   document.querySelector('[data-view=party]').classList.toggle('linked', net.status === 'host' || net.status === 'client');
+}
+function renderClock() {
+  const seconds = Math.max(0, Math.floor((Date.now() - s.cur.start) / 1000));
+  $('matchNow').textContent = Math.floor(seconds / 60).toString().padStart(2,'0') + ':' + (seconds % 60).toString().padStart(2,'0');
 }
 
 function renderRows() {
   const rows = $('rows');
   rows.innerHTML = '';
+  $('statHead').hidden = s.hidden || (!s.show.chests && !s.show.cpm);
+  const labels = s.countMode === 'personal' ? ['YOU'] : ['team','merged'].includes(s.countMode) ? ['TEAM'] : ['YOU','TEAM'];
+  $('statHead').innerHTML = '<span>CHESTS</span><span class="columns">' + labels.map(label=>'<span>'+label+'</span>').join('') + '</span>';
   if (s.hidden) return;
   for (const st of STATS) {
     if (!s.show[st.key]) continue;
@@ -399,17 +439,16 @@ function renderRows() {
 
 function renderRoster() {
   const el = $('roster');
-  const linked = (net.status === 'host' || net.status === 'client') && net.players.length;
-  el.hidden = !linked || s.hidden;
+  el.hidden = s.hidden;
   if (el.hidden) return;
   const players = rankedPlayers(), most = players[0].chests;
   const rows = players.map(p => {
     const mine = p.id === s.id;
     const leader = most > 0 && p.chests === most;
     return '<div class="p' + (mine ? ' me' : '') + (leader ? ' leader' : '') + '"><span class="name">' + esc(mine ? 'You' : p.name) + '</span>' +
-      (leader ? CROWN : '') + paired(p.chests, p.teamChests) + '</div>';
+      '<span class="n">' + esc(p.chests) + '</span><span class="streak' + (p.streak > 0 ? ' active' : '') + '" aria-label="' + (p.streak > 0 ? 'Active' : 'Inactive') + ' opening streak: ' + (p.streak || 0) + '">' + FIRE + '<span>' + (p.streak || 0) + '</span></span></div>';
   });
-  el.innerHTML = rows.join('');
+  el.innerHTML = '<div class="roster-head"><span>SQUAD</span><span>GAME</span><span>STREAK</span></div>' + rows.join('');
 }
 
 function sessionStats(now = Date.now()) {
@@ -701,6 +740,7 @@ window.api.onCommand?.(command => {
 });
 
 setInterval(renderSession, 1000);
+setInterval(renderClock, 1000);
 setInterval(() => window.api.snapshot?.({ s, net, session:sessionStats(), keys:KEYS, keyOk }), 1000);
 setInterval(renderNotice, 250);
 render();

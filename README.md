@@ -4,7 +4,7 @@ A Windows Electron MiniHUD for tracking chest openings with your squad.
 
 ## Install
 
-Download `ChestTracker-Setup-1.1.1.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
+Download `ChestTracker-Setup-1.1.2.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
 
 The current build is unsigned. Windows may show its usual unknown-publisher prompt.
 
@@ -44,4 +44,4 @@ See [relay/README.md](relay/README.md). The relay supports up to 16 players per 
 
 ## Design concepts
 
-[MiniHUD SVG concept board](docs/designs/minihud-concepts.svg): A Outline (224 × 344), B Inline (248 × 348), C Ledger (224 × 344). Each proposal shows personal/team counts for this game, lifetime, and session, plus rates, token chances, streaks, and squad game/lifetime totals. These are compact monochrome vector proposals awaiting selection. The current MiniHUD defaults to compact mode, uses SVG line icons and a subtle 250ms recap transition; the expanded-stat proposals have not yet been implemented in the app.
+[Selected Ledger SVG reference](docs/designs/minihud-concepts.svg): 224 × 214, with active and inactive streak examples. The HUD shows the squad’s game counts and fire streak icons, personal/team chests this game, chests per match, and one shared token chance. Inactive flames are grey. Lifetime/session/hourly details and explanatory footers are omitted from the HUD. This selected layout is implemented in version 1.1.2; earlier A/B references are retained as historical proposals.

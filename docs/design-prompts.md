@@ -1,12 +1,16 @@
-# Compact MiniHUD proposals
+# Selected MiniHUD: Ledger
 
-The revised concepts are hand-authored SVG vectors: no image generator, embedded raster data, textures, gradients, glow, or particle effects.
+The user selected the third layout, then removed the statistics they did not need.
 
-Design brief: compact, minimalist, monochrome gaming overlays with thin SVG line icons and quiet dividers. All three proposals show personal and inclusive team chest counts for the current game, lifetime, and session; personal/team rates per match and hour; token chance; current and best streak; completed games; session duration; and each squad member’s game and lifetime counts. Show actual 224–248px overlay widths. Lifetime totals persist across games; team totals include your own openings once.
+The refined SVG reference is 224 × 214 pixels and shows:
 
-- A Outline: stats matrix first, then squad, 224 × 344.
-- B Inline: current game and lifetime counts emphasized, with supporting stats, 248 × 348.
-- C Ledger: squad game/lifetime table first, then stats matrix, 224 × 344.
-- Shared recap: small per-player counts and best consecutive-opening streak.
+- Squad member name, chests this game, and current consecutive-opening streak.
+- A thin fire SVG: muted warm color for an active streak; grey with zero when inactive.
+- Personal/team chests this game and chests per match.
+- One shared team token chance below the squad.
 
-All standalone designs and the comparison board are in [designs](designs/). Regenerate them with `node docs/designs/generate.cjs`. These are proposals awaiting selection; this design revision does not change the released app. The earlier bitmap concepts remain available in Git history.
+Lifetime totals, session counts, hourly rates, completed-game/session-duration labels, and the “Team includes you” footer are omitted. The comparison board shows the selected layout in active and inactive streak states.
+
+These are editable SVG vectors, with no raster images, glow or particle effects. Regenerate the selected references with `node docs/designs/generate.cjs`. The earlier A/B alternatives remain in this folder as historical proposals; they are not used by the current HUD.
+
+The chosen Ledger layout is implemented in app version 1.1.2.

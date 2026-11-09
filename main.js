@@ -165,7 +165,7 @@ function lanAddresses() {
 }
 
 function broadcastRoster() {
-  const players = [me, ...peers.values()];
+  const players = streaks.live([me, ...peers.values()]);
   for (const s of peers.keys()) write(s, { t: 'roster', players });
   toUI('net', { status: 'host', players, addresses: lanAddresses(), port: PORT });
 }
