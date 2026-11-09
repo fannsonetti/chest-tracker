@@ -1,6 +1,6 @@
 # Hosted squad relay
 
-Deploy this service on an always-on server so players connect outbound instead of forwarding ports on their own computers. The app accepts `wss://` URLs, `ws://localhost` for development, and the explicitly configured direct server `ws://85.220.66.209:47800`.
+Deploy this service on an always-on server so players connect outbound instead of forwarding ports on their own computers. The app accepts `wss://` URLs, `ws://localhost` for development, and the explicitly configured app-01 addresses `ws://85.220.66.209:47800` (Internet) and `ws://192.168.0.57:47800` (Same network).
 
 ## app-01 direct deployment
 

@@ -13,6 +13,7 @@ The current build is unsigned. Windows may show its usual unknown-publisher prom
 - Open the settings icon for the separate options window, with Overlay, Party, Matches, and Session tabs.
 - Choose personal, team, personal/team, or merged counts. Team and merged counts include your own chests once.
 - Set your name and create or join a hosted room using a room code. The default relay is `ws://85.220.66.209:47800` on app-01. Direct LAN hosting is also available.
+- On app-01’s network, the Party tab’s **Same network** shortcut uses `ws://192.168.0.57:47800`. **Internet** selects the public address for friends outside that network.
 - Only the party host can end a match. F8 ends a solo match or the host’s party match; guests cannot end it. Everyone receives the same frozen roster and streak recap, then starts the next match.
 - A streak is consecutive chest openings by one person, broken by another player’s opening. The host/relay receipt order resolves simultaneous openings. Openings before connection establish a baseline and are excluded from streaks. Corrections undo that player’s most recent recorded openings. Each match starts a fresh streak record.
 - Recaps include each connected player’s personal openings and the longest streak. History stores the recap. Reduced-motion settings suppress the animation.

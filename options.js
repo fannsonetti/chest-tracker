@@ -20,11 +20,13 @@ for (const id of ['countMode','compact','opacity','recaps','odds','name','relayU
 $('transport').onchange = () => { $('relayFields').hidden = $('transport').value !== 'relay'; $('lanFields').hidden = $('transport').value !== 'lan'; };
 $('relayHost').onclick = () => window.api.relayConnect({ url:$('relayUrl').value.trim(), create:true });
 $('relayJoin').onclick = () => window.api.relayConnect({ url:$('relayUrl').value.trim(), code:$('code').value.trim(), create:false });
+for (const [id,url] of [['relayInternet','ws://85.220.66.209:47800'],['relayLocal','ws://192.168.0.57:47800']]) $(id).onclick = () => { $('relayUrl').value = url; configure({ relayUrl:url }); };
 $('lanHost').onclick = () => window.api.netHost();
 $('lanJoin').onclick = () => window.api.netJoin($('address').value.trim());
 $('leave').onclick = () => window.api.netLeave();
 $('endMatch').onclick = () => window.api.command('endMatch');
 $('newSession').onclick = () => window.api.command('newSession');
+$('quit').onclick = () => window.api.quit();
 $('reset').onclick = () => { if (confirm('Reset counts? Your match history will be kept.')) window.api.command('reset'); };
 
 function render(data) {
