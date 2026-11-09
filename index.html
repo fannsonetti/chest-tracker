@@ -1,0 +1,703 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Chest Tracker</title>
+<style>
+  :root {
+    --alpha: .88;
+    --bg: rgba(12, 13, 16, var(--alpha));
+    --line: rgba(255, 255, 255, .07);
+    --fill: rgba(255, 255, 255, .06);
+    --fill-hi: rgba(255, 255, 255, .12);
+    --fg: #eceef2;
+    --muted: #8f96a3;
+    --faint: #7c828d;
+    --accent: #f2c265;
+    --bad: #f0907f;
+    --r: 6px;
+  }
+  * { box-sizing: border-box; user-select: none; }
+  ::selection { background: rgba(242, 194, 101, .35); color: var(--fg); }
+  body { margin: 0; overflow: hidden; font: 12px/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--fg); background: transparent; -webkit-font-smoothing: antialiased; }
+  #panel { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px 8px; overflow: hidden; }
+
+  /* Header */
+  #bar { display: flex; align-items: center; gap: 6px; height: 28px; -webkit-app-region: drag; }
+  #bar .title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  #matchNo { font-weight: 600; }
+  #matchNow { color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+  nav { display: flex; gap: 1px; -webkit-app-region: no-drag; }
+
+  button { -webkit-app-region: no-drag; font: inherit; color: inherit; background: none; border: 0; cursor: pointer; border-radius: var(--r); }
+  button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .icon { width: 22px; height: 22px; display: grid; place-items: center; color: var(--muted); position: relative; transition: color .12s, background-color .12s; }
+  .icon:hover { color: var(--fg); background: var(--fill); }
+  .icon.on { color: var(--fg); background: var(--fill-hi); }
+  .icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .icon .dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); display: none; }
+  .icon.linked .dot { display: block; }
+
+  /* Stat rows */
+  .row { display: flex; align-items: center; height: 26px; gap: 6px; }
+  .row .label { color: var(--muted); flex: 1; }
+  .row .val { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+  .row.token .val { color: var(--accent); font-size: 13px; }
+  .ctl { display: flex; gap: 1px; opacity: 0; transition: opacity .12s; }
+  .row:hover .ctl, .ctl:focus-within { opacity: 1; }
+  .ctl button { width: 20px; height: 20px; display: grid; place-items: center; color: var(--muted); }
+  .ctl button:hover { color: var(--fg); background: var(--fill); }
+  .ctl svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; fill: none; }
+
+  section { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; }
+  .view { display: none; }
+  .view.open { display: block; }
+  .h { color: var(--muted); font-size: 11px; margin: 0 0 6px; display: flex; justify-content: space-between; align-items: center; }
+  .view .h:not(:first-child) { margin-top: 12px; }
+  .dim { color: var(--muted); }
+  .empty { color: var(--muted); padding: 2px 0 4px; }
+  .err { color: var(--bad); margin-top: 6px; }
+
+  /* Party roster (always shown while linked) */
+  #roster .p { display: flex; align-items: center; height: 22px; gap: 8px; font-variant-numeric: tabular-nums; }
+  #roster .p .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #roster .p { color: var(--muted); }
+  #roster .p.me { color: var(--fg); }
+  #roster .p.me.leader { color: #ffd45e; }
+  .crown { width: 13px; height: 13px; flex: none; color: #ffd45e; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+  .pair { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pair .slash { color: var(--faint); font-weight: 400; }
+  .row .ctl { opacity: 1; }
+  .row .ctl button { width: 16px; padding: 0; }
+  .row .pair .val { font-size: 14px; }
+  .row > .pair { flex-shrink: 0; }
+  .row .label { min-width: 0; }
+  #notice { color: var(--accent); font-size: 11px; padding: 4px 0 0; overflow-wrap: anywhere; }
+  #roster .p .n { font-weight: 600; min-width: 2ch; text-align: right; }
+  #roster .p .t { color: var(--muted); min-width: 3.5ch; text-align: right; }
+  #roster .sum { color: var(--muted); border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; }
+
+  /* Inputs and buttons */
+  .field { display: flex; gap: 4px; margin-bottom: 6px; }
+  input[type=text], input[type=number] { flex: 1; min-width: 0; height: 24px; padding: 0 7px; font: inherit; color: var(--fg); background: var(--fill); border: 0; border-radius: var(--r); user-select: text; }
+  input::placeholder { color: var(--faint); }
+  input[type=number] { flex: 0 0 84px; text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=number]::-webkit-inner-spin-button { display: none; }
+  .btn { height: 24px; padding: 0 10px; background: var(--fill); white-space: nowrap; transition: background-color .12s; }
+  .btn:hover { background: var(--fill-hi); }
+  .btn.primary { background: var(--accent); color: #1b1608; font-weight: 600; }
+  .btn.primary:hover { background: #f6d084; }
+  .btn.quiet { background: none; color: var(--muted); padding: 0 6px; }
+  .btn.quiet:hover { color: var(--fg); background: var(--fill); }
+  .addr { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .01em; }
+  .actions { display: flex; gap: 4px; margin-top: 8px; }
+  .actions .spacer { flex: 1; }
+
+  /* Settings */
+  .line { display: flex; align-items: center; justify-content: space-between; height: 26px; gap: 8px; }
+  .line > span { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { height: 22px; padding: 0 8px; background: var(--fill); color: var(--muted); }
+  .chip.on { background: var(--fill-hi); color: var(--fg); }
+  .key { min-width: 64px; height: 22px; padding: 0 8px; background: var(--fill); font-variant-numeric: tabular-nums; text-align: center; }
+  .key:hover { background: var(--fill-hi); }
+  .key.wait { color: var(--accent); background: rgba(242, 194, 101, .12); }
+  .key.bad { color: var(--bad); }
+  .key.none { color: var(--faint); }
+
+  /* History */
+  #hist { max-height: 188px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+  #hist::-webkit-scrollbar { width: 4px; }
+  #hist::-webkit-scrollbar-thumb { background: var(--fill-hi); border-radius: 2px; }
+  .m { display: grid; grid-template-columns: 3.2ch 1fr 2.5ch 2.5ch; align-items: baseline; gap: 6px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .m + .m { border-top: 1px solid var(--line); }
+  .m .no { color: var(--faint); }
+  .m .when { color: var(--muted); }
+  .m .c { font-weight: 600; text-align: right; }
+  .m .tc { color: var(--muted); text-align: right; }
+  .m .with { grid-column: 2 / -1; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cols { display: grid; grid-template-columns: 3.2ch 1fr 2.5ch 2.5ch; gap: 6px; color: var(--faint); font-size: 11px; padding-bottom: 2px; }
+  .cols span:nth-child(n+3) { text-align: right; }
+
+  /* Background opacity slider */
+  .range { display: flex; align-items: center; gap: 8px; }
+  .range output { min-width: 4ch; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
+  input[type=range] { -webkit-appearance: none; width: 96px; height: 16px; background: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--p, 88%), var(--fill-hi) var(--p, 88%)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4px; border-radius: 50%; background: var(--fg); }
+
+  /* Stat icons: only shown in compact layout */
+  .row .glyph { display: none; width: 14px; height: 14px; color: var(--muted); flex: none; }
+  .row .glyph svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .row.token .glyph { color: var(--accent); }
+
+  /* Compact layout: numbers with icons, no labels */
+  #panel.compact { padding: 2px 6px 5px; border-radius: 8px; }
+  .compact #bar { height: 23px; }
+  .compact #bar .title { font-size: 11px; }
+  .compact #matchNow { display: none; }
+  .compact nav .icon:not([data-view=settings]) { display: none; }
+  .compact nav { margin-left: auto; }
+  .compact .icon { width: 20px; height: 20px; }
+  .compact .icon svg { width: 12px; height: 12px; }
+  .compact .row { height: 22px; gap: 5px; }
+  .compact .row .label { display: none; }
+  .compact .row .glyph { display: block; }
+  .compact .row > .pair { margin-left: auto; }
+  .compact .row .val { flex: 1; font-size: 14px; }
+  .compact .row.token .val { font-size: 12px; }
+  .compact #roster { margin-top: 4px; padding-top: 4px; }
+  .compact #roster .h, .compact #roster .sum { display: none; }
+  .compact #roster .p { height: 19px; font-size: 11px; }
+  #recap { position:relative; margin-top:8px; padding:14px 10px; border:1px solid #a9803b; border-radius:8px; background:radial-gradient(ellipse at top, #60421e, #15161b 75%); animation:reveal .6s ease-out; overflow:hidden; }
+  #recap h2 { font-size:11px; letter-spacing:2px; color:#f2c265; margin:0 0 10px; }
+  #recap .big { font-size:30px; font-weight:700; color:#ffdb8f; }
+  #recap .spark { position:absolute; top:20px; color:#f2c265; pointer-events:none; animation:spark 1.8s ease-out both; }
+  #recap .recap-player { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #ffffff12; }
+  #recap .dim { margin:9px 0; font-size:11px; }
+  @keyframes reveal { from { opacity:0; transform:translateY(15px) scale(.94); } to { opacity:1; transform:none; } }
+  @keyframes spark { from { opacity:1; transform:translateY(0) rotate(0); } to { opacity:0; transform:translateY(150px) rotate(180deg); } }
+  @media (prefers-reduced-motion:reduce) { #recap, #recap .spark { animation:none; } #recap .spark { display:none; } }
+</style></head>
+<body><div id="panel">
+  <header id="bar">
+    <div class="title"><span id="matchNo">Match 1</span><span id="matchNow"></span></div>
+    <nav>
+      <button class="icon" data-view="party" title="Party link" aria-label="Party link"><svg viewBox="0 0 14 14"><path d="M5.8 8.2l2.4-2.4"/><path d="M6.6 3.9l.9-.9a2.4 2.4 0 0 1 3.5 3.5l-.9.9"/><path d="M7.4 10.1l-.9.9A2.4 2.4 0 0 1 3 7.5l.9-.9"/></svg><span class="dot"></span></button>
+      <button class="icon" data-view="history" title="Matches" aria-label="Matches"><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.25"/><path d="M7 4.4V7l1.8 1.3"/></svg></button>
+      <button class="icon" data-view="session" title="Session stats" aria-label="Session stats"><svg viewBox="0 0 14 14"><path d="M2 12h10M3 9V6M7 9V2M11 9V4"/></svg></button>
+      <button class="icon" data-view="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 14 14"><path d="M2 4h5.5M11 4h1M2 10h1M6.5 10H12"/><circle cx="9.25" cy="4" r="1.6"/><circle cx="4.75" cy="10" r="1.6"/></svg></button>
+    </nav>
+  </header>
+
+  <div id="rows"></div>
+  <section id="roster" hidden></section>
+  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <div id="recap" role="status" aria-live="polite" hidden></div>
+
+  <section class="view" id="v-party"></section>
+  <section class="view" id="v-session">
+    <div class="h"><span>Session stats</span><button class="btn quiet" id="newSession">New session</button></div>
+    <div class="dim">Since opening the app or starting a new session.</div>
+    <div id="sessionStats"></div>
+  </section>
+
+  <section class="view" id="v-history">
+    <div class="h"><span>Matches</span><button class="btn quiet" id="endMatch"></button></div>
+    <div id="hist"></div>
+  </section>
+
+  <section class="view" id="v-settings">
+    <div class="h">Layout</div>
+    <div class="chips group" id="layout"><button class="chip" data-compact="0">Full</button><button class="chip" data-compact="1">Compact</button></div>
+    <div class="line"><span>Background</span><span class="range"><input type="range" id="opacity" min="0" max="100" step="5"><output id="opacityVal"></output></span></div>
+    <div class="h">Show</div>
+    <div class="chips group" id="toggles"></div>
+    <div class="h">Keys</div>
+    <div class="group" id="keys"></div>
+    <div class="err" id="keyErr" hidden></div>
+    <div class="h">Counts</div>
+    <div class="line"><span>Token odds, 1 in</span><input type="number" id="odds" min="1"></div>
+    <div class="line"><span>Matches played</span><input type="number" id="matches" min="0"></div>
+    <div class="actions"><button class="btn" id="reset">Reset counts</button><span class="spacer"></span><button class="btn quiet" id="quit">Quit</button></div>
+  </section>
+</div>
+<script src="match.js"></script>
+<script>
+// Browser fallback so the page can be previewed outside Electron.
+window.api = window.api || { onAction(){}, resize(){}, quit(){}, setKeys: async k => Object.fromEntries(Object.keys(k).map(a => [a, true])), pauseKeys(){}, resumeKeys(){}, onNet(){}, netState(){}, netHost(){}, netJoin(){}, netLeave(){} };
+
+const KEYS = [
+  { a:'chestUp',   label:'Chest +' },
+  { a:'chestDown', label:'Chest −' },
+  { a:'teamUp',    label:'Team chest +' },
+  { a:'teamDown',  label:'Team chest −' },
+  { a:'match',     label:'End match' },
+  { a:'toggle',    label:'Hide / show' },
+];
+const DEF = {
+  chests:0, teamChests:0, matches:0, odds:137500,
+  show:{ chests:true, teamChests:true, cpm:true, token:true }, hidden:false,
+  cur:{ chests:0, teamChests:0, start:Date.now() },
+  history:[], name:'', id:'', v:2, compact:false, opacity:88,
+  countMode:'both', recaps:true, streak:0, bestStreak:0, relayUrl:'',
+  keys:{ chestUp:'numadd', chestDown:'numsub', teamUp:'Ctrl+numadd', teamDown:'Ctrl+numsub', match:'F8', toggle:'F9' },
+};
+let s;
+try {
+  const raw = JSON.parse(localStorage.getItem('s') || '{}');
+  s = Object.assign(JSON.parse(JSON.stringify(DEF)), raw);
+  for (const k of ['show', 'cur', 'keys']) s[k] = Object.assign({}, DEF[k], raw[k]);
+  if (!Array.isArray(s.history)) s.history = [];
+  // v2: team chests include your own chests. Fold old separate counts in once.
+  if (!(raw.v >= 2) && Object.keys(raw).length) {
+    s.teamChests += s.chests;
+    s.cur.teamChests += s.cur.chests;
+    for (const m of s.history) m.teamChests += m.chests;
+  }
+  s.v = 2;
+} catch (e) { s = JSON.parse(JSON.stringify(DEF)); }
+if (!s.id) s.id = Math.random().toString(36).slice(2, 10);
+const save = () => { try { localStorage.setItem('s', JSON.stringify(s)); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+const ICON_MINUS = '<svg viewBox="0 0 10 10"><path d="M2 5h6"/></svg>';
+const ICON_PLUS  = '<svg viewBox="0 0 10 10"><path d="M5 2v6M2 5h6"/></svg>';
+
+let view = null;          // open panel: 'party' | 'history' | 'settings' | null
+let net = { status:'off', players:[] };
+let keyOk = {};           // action -> registered?
+let capturing = null;     // action being rebound
+let lastParty = '';
+// Only count openings observed while together. Joining/rejoining establishes
+// a fresh baseline, so chests opened before joining or while away are excluded.
+const teammateCounts = new Map();
+let session = newSession();
+
+function newSession() {
+  return { start:Date.now(), chests:0, teamChests:0, matches:0, completedTeam:0, matchTeam:0 };
+}
+
+function recordSession(chests, teamChests) {
+  session.chests = Math.max(0, session.chests + chests);
+  session.teamChests = Math.max(session.chests, session.teamChests + teamChests);
+  session.matchTeam = Math.max(0, session.matchTeam + teamChests);
+}
+
+function syncTeamChests(players) {
+  const present = new Set(players.map(p => p.id));
+  for (const id of teammateCounts.keys()) if (!present.has(id)) teammateCounts.delete(id);
+  for (const p of players) {
+    if (!p.id || p.id === s.id) continue;
+    const before = teammateCounts.get(p.id);
+    const sameMatch = before && before.matchStart === p.matchStart;
+    const credited = sameMatch ? before.credited : 0;
+    const delta = !before ? 0 : sameMatch ? Math.max(-credited, p.chests - before.chests) : p.chests;
+    teammateCounts.set(p.id, { matchStart:p.matchStart, chests:p.chests, credited:credited + delta });
+    if (delta) {
+      const beforeTeam = s.teamChests;
+      bumpIn(s, 'teamChests', delta);
+      bumpIn(s.cur, 'teamChests', delta);
+      recordSession(0, s.teamChests - beforeTeam);
+    }
+  }
+}
+
+function resetTeammateCredits() {
+  for (const p of teammateCounts.values()) p.credited = 0;
+}
+
+// Team chests already include your own, so they are the total opened.
+const total = () => s.teamChests;
+// Add new stats here. `field` adds +/- buttons on hover.
+const STATS = [
+  { key:'chests',     label:'Chests',       val:() => paired(s.chests, s.teamChests, true),
+    icon:'<path d="M2 6.5h10V12H2z"/><path d="M2 6.5V5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 12 5v1.5"/><path d="M7 6.5v2"/>' },
+  { key:'cpm',        label:'CPM',    val:() => paired(s.matches ? (s.chests / s.matches).toFixed(2) : '–', s.matches ? (total() / s.matches).toFixed(2) : '–'),
+    icon:'<path d="M3.5 12.5V2"/><path d="M3.5 2.5h7l-1.6 2.6 1.6 2.6h-7"/>' },
+  { key:'token',      label:'Token chance', val:() => (100 * (1 - Math.pow(1 - 1 / s.odds, total()))).toFixed(4) + '%',
+    icon:'<path d="M7 1.5l5 4.2L7 12.5 2 5.7z"/><path d="M2 5.7h10M5 5.7L7 12.5l2-6.8"/>' },
+];
+const COMPACT_W = 184, FULL_W = 248;
+
+function paired(personal, team, controls = false) {
+  const value = (n, field, label) => '<span class="pair" title="' + label + '">' +
+    (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="-1" aria-label="Remove one ' + label.toLowerCase() + '">' + ICON_MINUS + '</button></span>' : '') +
+    '<span class="val">' + esc(n) + '</span>' +
+    (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="1" aria-label="Add one ' + label.toLowerCase() + '">' + ICON_PLUS + '</button></span>' : '') + '</span>';
+  if (s.countMode === 'personal') return value(personal, 'chests', 'Personal chests');
+  if (s.countMode === 'team' || s.countMode === 'merged') return value(team, 'teamChests', 'Team total (includes you)');
+  return '<span class="pair" aria-label="Personal ' + esc(personal) + ', team ' + esc(team) + '">' +
+    value(personal, 'chests', 'Personal chests') + '<span class="slash">/</span>' + value(team, 'teamChests', 'Team chests') + '</span>';
+}
+
+const CROWN = '<svg class="crown" viewBox="0 0 16 16" role="img" aria-label="Match leader"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
+function rankedPlayers() {
+  const players = net.players.filter(p => p.id !== s.id);
+  players.push({ id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start, streak:s.streak, bestStreak:s.bestStreak });
+  return players.sort((a, b) => b.chests - a.chests || String(a.id).localeCompare(String(b.id)));
+}
+
+let noticeUntil = 0;
+function checkOvertakes(previous, current) {
+  if (previous.status !== current.status || !['host', 'client'].includes(current.status)) return;
+  const passed = current.players.filter(p => {
+    const before = previous.players.find(q => q.id === p.id);
+    return p.id !== s.id && before && before.matchStart === p.matchStart &&
+      before.chests <= s.cur.chests && p.chests > s.cur.chests;
+  });
+  if (passed.length) {
+    $('notice').textContent = passed.map(p => p.name).join(', ') + ' overtook you';
+    noticeUntil = Date.now() + 4000;
+  }
+}
+function renderNotice() {
+  const el = $('notice'), hidden = s.hidden || Date.now() >= noticeUntil;
+  if (el.hidden !== hidden) {
+    el.hidden = hidden;
+    requestAnimationFrame(() => window.api.resize({ w:$('panel').offsetWidth, h:$('panel').offsetHeight }));
+  }
+}
+
+function prettyKey(acc) {
+  if (!acc) return 'None';
+  return acc.split('+').map(p => ({ numadd:'Num +', numsub:'Num −', nummult:'Num ×', numdiv:'Num ÷', numdec:'Num .' }[p] || (/^num\d$/.test(p) ? 'Num ' + p.slice(3) : p))).join(' + ');
+}
+function accelFrom(e) {
+  const c = e.code;
+  let k = null;
+  if (/^F\d{1,2}$/.test(c)) k = c;
+  else if (/^Key[A-Z]$/.test(c)) k = c.slice(3);
+  else if (/^Digit\d$/.test(c)) k = c.slice(5);
+  else if (/^Numpad\d$/.test(c)) k = 'num' + c.slice(6);
+  else k = { NumpadAdd:'numadd', NumpadSubtract:'numsub', NumpadMultiply:'nummult', NumpadDivide:'numdiv', NumpadDecimal:'numdec',
+    Minus:'-', Equal:'=', BracketLeft:'[', BracketRight:']', Semicolon:';', Quote:"'", Comma:',', Period:'.', Slash:'/', Backslash:'\\', Backquote:'`',
+    Insert:'Insert', Home:'Home', End:'End', PageUp:'PageUp', PageDown:'PageDown', ArrowUp:'Up', ArrowDown:'Down', ArrowLeft:'Left', ArrowRight:'Right', Space:'Space' }[c] || null;
+  if (!k) return null;
+  const mods = [];
+  if (e.ctrlKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  return mods.concat(k).join('+');
+}
+function when(ts) {
+  const d = new Date(ts), now = new Date();
+  const hm = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  if (d.toDateString() === now.toDateString()) return hm;
+  return d.toLocaleDateString([], { month:'short', day:'numeric' }) + ' ' + hm;
+}
+
+// ---------- Rendering ----------
+function renderBar() {
+  $('matchNo').textContent = 'Match ' + (s.matches + 1);
+  const c = s.cur.teamChests;
+  $('matchNow').textContent = c ? plural(c, 'chest') : '';
+  for (const b of document.querySelectorAll('nav .icon')) b.classList.toggle('on', b.dataset.view === view);
+  document.querySelector('[data-view=party]').classList.toggle('linked', net.status === 'host' || net.status === 'client');
+}
+
+function renderRows() {
+  const rows = $('rows');
+  rows.innerHTML = '';
+  if (s.hidden) return;
+  for (const st of STATS) {
+    if (!s.show[st.key]) continue;
+    const r = document.createElement('div');
+    r.className = 'row ' + st.key;
+    r.innerHTML = '<span class="label">' + st.label + '</span>' +
+      (st.field ? '<span class="ctl"><button data-f="' + st.field + '" data-d="-1" aria-label="Remove one">' + ICON_MINUS + '</button><button data-f="' + st.field + '" data-d="1" aria-label="Add one">' + ICON_PLUS + '</button></span>' : '') +
+      (st.key === 'token' ? '<span class="val">' + st.val() + '</span>' : st.val()) +
+      '<span class="glyph" title="' + st.label + '"><svg viewBox="0 0 14 14">' + st.icon + '</svg></span>';
+    r.title = s.compact ? st.label : '';
+    rows.appendChild(r);
+  }
+}
+
+function renderRoster() {
+  const el = $('roster');
+  const linked = (net.status === 'host' || net.status === 'client') && net.players.length;
+  el.hidden = !linked || s.hidden;
+  if (el.hidden) return;
+  const players = rankedPlayers(), most = players[0].chests;
+  const rows = players.map(p => {
+    const mine = p.id === s.id;
+    const leader = most > 0 && p.chests === most;
+    return '<div class="p' + (mine ? ' me' : '') + (leader ? ' leader' : '') + '"><span class="name">' + esc(mine ? 'You' : p.name) + '</span>' +
+      (leader ? CROWN : '') + paired(p.chests, p.teamChests) + '</div>';
+  });
+  el.innerHTML = rows.join('');
+}
+
+function sessionStats(now = Date.now()) {
+  const seconds = Math.max(0, Math.floor((now - session.start) / 1000));
+  const duration = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map(n => String(n).padStart(2, '0')).join(':');
+  const hours = (now - session.start) / 3600000;
+  return [
+    ['Duration', duration],
+    ['Your chests', session.chests],
+    ['Team chests', session.teamChests],
+    ['Your chests / hour', hours > 0 ? (session.chests / hours).toFixed(1) : '–'],
+    ['Team chests / hour', hours > 0 ? (session.teamChests / hours).toFixed(1) : '–'],
+    ['Completed matches', session.matches],
+    ['Team chests / match', session.matches ? (session.completedTeam / session.matches).toFixed(2) : '–'],
+  ];
+}
+
+function renderSession() {
+  if (view !== 'session') return;
+  $('sessionStats').innerHTML = sessionStats().map(([label, value]) =>
+    '<div class="row"><span class="label">' + label + '</span><span class="val">' + value + '</span></div>').join('');
+}
+
+function renderParty() {
+  const el = $('v-party');
+  if (view !== 'party') { lastParty = ''; return; }
+  const sig = JSON.stringify([net.status, net.error, net.host, net.addresses, net.port]);
+  if (sig === lastParty) return;   // unchanged: keep inputs (and focus) intact
+  lastParty = sig;
+  const nameField = '<div class="field"><input type="text" id="pname" maxlength="20" placeholder="Your name" value="' + esc(s.name) + '"></div>';
+  let html;
+  if (net.status === 'host') {
+    const addr = (net.addresses || []).map(a => '<div class="addr">' + esc(a) + '</div>').join('') || '<div class="dim">No network found</div>';
+    html = '<div class="h">Hosting · friends join with</div>' + addr +
+      '<div class="actions"><span class="dim">Port ' + net.port + '</span><span class="spacer"></span><button class="btn" id="leave">End party</button></div>';
+  } else if (net.status === 'client') {
+    html = '<div class="h">Linked to</div><div class="addr">' + esc(net.host) + '</div>' +
+      '<div class="actions"><span class="spacer"></span><button class="btn" id="leave">Leave</button></div>';
+  } else if (net.status === 'connecting') {
+    html = '<div class="empty">Connecting…</div><div class="actions"><span class="spacer"></span><button class="btn" id="leave">Cancel</button></div>';
+  } else {
+    html = '<div class="h">Link with your squad for this match</div>' + nameField +
+      '<div class="field"><input type="text" id="joinAddr" placeholder="Host address" value="' + esc(s.lastHost || '') + '"><button class="btn" id="join">Join</button></div>' +
+      '<div class="actions"><button class="btn primary" id="host">Host party</button></div>' +
+      (net.error ? '<div class="err">' + esc(net.error) + '</div>' : '');
+  }
+  el.innerHTML = html;
+  const pn = $('pname');
+  if (pn) pn.oninput = e => { s.name = e.target.value.slice(0, 20); save(); pushNet(); };
+  if ($('host')) $('host').onclick = () => { net.error = ''; window.api.netHost(); };
+  if ($('join')) {
+    const go = () => { const v = $('joinAddr').value.trim(); s.lastHost = v; save(); net.error = ''; window.api.netJoin(v); };
+    $('join').onclick = go;
+    $('joinAddr').onkeydown = e => { if (e.key === 'Enter') go(); };
+  }
+  if ($('leave')) $('leave').onclick = () => window.api.netLeave();
+}
+
+function renderHistory() {
+  if (view !== 'history') return;
+  $('endMatch').textContent = 'End match' + (s.keys.match ? ' · ' + prettyKey(s.keys.match) : '');
+  const h = $('hist');
+  if (!s.history.length) {
+    h.innerHTML = '<div class="empty">No matches yet. End a match to log it here with its chests and party.</div>';
+    return;
+  }
+  h.innerHTML = '<div class="cols"><span>#</span><span>When</span><span title="Chests">C</span><span title="Team chests">T</span></div>' +
+    s.history.slice().reverse().map(m => {
+      const w = (m.party || []).map(p => esc(p.name) + ' ' + p.chests).join(', ');
+      return '<div class="m"><span class="no">' + m.n + '</span><span class="when">' + when(m.end) + '</span>' +
+        '<span class="c">' + m.chests + '</span><span class="tc">' + m.teamChests + '</span>' +
+        (w ? '<span class="with">with ' + w + '</span>' : '') + '</div>';
+    }).join('');
+}
+
+function renderSettings() {
+  if (view !== 'settings') return;
+  for (const b of document.querySelectorAll('#layout .chip')) {
+    const on = (b.dataset.compact === '1') === !!s.compact;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+  }
+  const op = $('opacity');
+  if (document.activeElement !== op) op.value = s.opacity;
+  op.style.setProperty('--p', s.opacity + '%');
+  $('opacityVal').textContent = s.opacity + '%';
+  const tg = $('toggles');
+  tg.innerHTML = '';
+  for (const st of STATS) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (s.show[st.key] ? ' on' : '');
+    b.textContent = st.label;
+    b.setAttribute('aria-pressed', s.show[st.key]);
+    b.onclick = () => { s.show[st.key] = !s.show[st.key]; render(); };
+    tg.appendChild(b);
+  }
+  const kl = $('keys');
+  kl.innerHTML = '';
+  for (const k of KEYS) {
+    const row = document.createElement('div');
+    row.className = 'line';
+    const acc = s.keys[k.a];
+    const cls = capturing === k.a ? ' wait' : !acc ? ' none' : keyOk[k.a] === false ? ' bad' : '';
+    row.innerHTML = '<span>' + k.label + '</span><button class="key' + cls + '" title="Click, then press a key. Esc cancels, Backspace clears.">' +
+      (capturing === k.a ? 'Press a key' : esc(prettyKey(acc))) + '</button>';
+    row.lastChild.onclick = () => startCapture(k.a);
+    kl.appendChild(row);
+  }
+  const bad = KEYS.filter(k => s.keys[k.a] && keyOk[k.a] === false).map(k => prettyKey(s.keys[k.a]));
+  $('keyErr').hidden = !bad.length;
+  $('keyErr').textContent = bad.length ? bad.join(', ') + ' is taken by another app. Pick a different key.' : '';
+  const od = $('odds'), mt = $('matches');
+  if (document.activeElement !== od) od.value = s.odds;
+  if (document.activeElement !== mt) mt.value = s.matches;
+}
+
+function render() {
+  renderBar(); renderRows(); renderRoster(); renderParty(); renderHistory(); renderSettings(); renderSession(); renderNotice();
+  for (const v of document.querySelectorAll('.view')) v.classList.toggle('open', v.id === 'v-' + view);
+  // Compact only while no panel is open; panels need the full width.
+  const panel = $('panel'), compact = s.compact && !view;
+  const w = compact ? COMPACT_W : FULL_W;
+  panel.classList.toggle('compact', compact);
+  panel.style.width = w + 'px';
+  applyOpacity();
+  save();
+  pushNet();
+  window.api.snapshot?.({ s, net, session:sessionStats(), keys:KEYS, keyOk });
+  requestAnimationFrame(() => window.api.resize({ w, h: panel.offsetHeight }));
+}
+function applyOpacity() {
+  const a = s.opacity / 100, panel = $('panel');
+  document.documentElement.style.setProperty('--alpha', a);
+  // Keep numbers readable over the game as the background fades out.
+  panel.style.borderColor = a < .15 ? 'transparent' : '';
+  panel.style.textShadow = a < .6 ? '0 1px 2px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9)' : '';
+}
+
+// ---------- Actions ----------
+let lastNet = '';
+function pushNet() {
+  const p = { id:s.id, name:s.name.trim() || 'Player', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start, streak:s.streak, bestStreak:s.bestStreak };
+  const j = JSON.stringify(p);
+  if (j !== lastNet) { lastNet = j; window.api.netState(p); }
+}
+// Your chests also count as team chests; team chests never drop below your own.
+function bumpIn(o, f, d) {
+  if (f === 'chests') {
+    const before = o.chests;
+    o.chests = Math.max(0, o.chests + d);
+    o.teamChests = Math.max(o.chests, o.teamChests + (o.chests - before));
+  } else {
+    o.teamChests = Math.max(o.chests, o.teamChests + d);
+  }
+}
+function bump(f, d) {
+  const beforeChests = s.chests, beforeTeam = s.teamChests;
+  bumpIn(s, f, d);
+  bumpIn(s.cur, f, d);
+  recordSession(s.chests - beforeChests, s.teamChests - beforeTeam);
+  render();
+}
+function endMatch() {
+  if (net.status === 'client' || net.status === 'connecting') return;
+  if (net.status === 'host') { window.api.netEndMatch?.(); return; }
+  finishMatch();
+}
+let lastMatchId = null;
+function finishMatch(event) {
+  if (event && event.id === lastMatchId) return;
+  if (event) lastMatchId = event.id;
+  const players = event?.players || rankedPlayers().map(p => ({ ...p, bestStreak:p.chests }));
+  const result = recapPlayers(players);
+  const own = result.find(p => p.id === s.id);
+  s.streak = own?.bestStreak || 0;
+  s.bestStreak = Math.max(s.bestStreak, own?.bestStreak || 0);
+  session.matches += 1;
+  session.completedTeam += session.matchTeam;
+  session.matchTeam = 0;
+  s.matches += 1;
+  const party = (net.status === 'host' || net.status === 'client')
+    ? net.players.filter(p => p.id !== s.id).map(p => ({ name:p.name, chests:p.chests, teamChests:p.teamChests })) : [];
+  s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result });
+  if (s.history.length > 300) s.history.splice(0, s.history.length - 300);
+  s.cur = { chests:0, teamChests:0, start:event?.end || Date.now() };
+  if (event) {
+    net.players = net.players.map(p => ({ ...p, chests:0, teamChests:0, matchStart:s.cur.start }));
+    teammateCounts.clear();
+  }
+  noticeUntil = 0;
+  resetTeammateCredits();
+  if (s.recaps) showRecap(result, event ? result.reduce((n,p)=>n+p.chests,0) : s.history.at(-1).teamChests);
+  render();
+}
+function showRecap(players, teamTotal) {
+  const el = $('recap');
+  const most = Math.max(0, ...players.map(p => p.bestStreak || 0));
+  const winners = players.filter(p => p.bestStreak === most).map(p => p.name).join(', ');
+  const opened = teamTotal ?? players.reduce((n, p) => n + p.chests, 0);
+  el.hidden = false;
+  el.innerHTML = '<h2>MATCH COMPLETE</h2><div class="big">' + opened + ' <small>chests</small></div>' +
+    players.map(p => '<div class="recap-player"><span>' + esc(p.name) + '</span><b>' + p.chests + ' opened</b></div>').join('') +
+    '<div class="dim">Longest streak · ' + most + ' chests in a row' + (most ? '<br>' + esc(winners) : '') + '</div>' +
+    '<button class="btn primary" id="dismissRecap">Next match</button>' +
+    Array.from({ length:16 }, (_, i) => '<span class="spark" style="left:' + (i * 6) + '%;animation-delay:' + (i % 5 * .12) + 's">✦</span>').join('');
+  $('dismissRecap').onclick = () => { el.hidden = true; render(); };
+}
+async function applyKeys() { keyOk = await window.api.setKeys(s.keys); render(); }
+
+function startCapture(a) {
+  capturing = a;
+  window.api.pauseKeys();
+  render();
+}
+function stopCapture() {
+  capturing = null;
+  applyKeys();
+}
+document.addEventListener('keydown', e => {
+  if (!capturing) return;
+  e.preventDefault();
+  if (e.key === 'Escape') return stopCapture();
+  if (e.key === 'Backspace' || e.key === 'Delete') { s.keys[capturing] = ''; return stopCapture(); }
+  const acc = accelFrom(e);
+  if (!acc) return;   // modifier alone or unsupported key: keep waiting
+  for (const k of KEYS) if (k.a !== capturing && s.keys[k.a] === acc) s.keys[k.a] = '';
+  s.keys[capturing] = acc;
+  stopCapture();
+});
+window.addEventListener('blur', () => { if (capturing) stopCapture(); });
+
+$('rows').onclick = e => { const b = e.target.closest('button'); if (b) bump(b.dataset.f, +b.dataset.d); };
+for (const b of document.querySelectorAll('nav .icon')) b.onclick = () => {
+  if (window.api.openOptions) { window.api.openOptions(b.dataset.view); return; }
+  view = view === b.dataset.view ? null : b.dataset.view;
+  if (capturing) { capturing = null; window.api.resumeKeys(); }
+  render();
+};
+$('endMatch').onclick = endMatch;
+$('newSession').onclick = () => { session = newSession(); render(); };
+for (const b of document.querySelectorAll('#layout .chip')) b.onclick = () => { s.compact = b.dataset.compact === '1'; render(); };
+$('opacity').oninput = e => { s.opacity = Math.max(0, Math.min(100, +e.target.value)); render(); };
+$('odds').onchange = e => { s.odds = Math.max(1, +e.target.value || DEF.odds); render(); };
+$('matches').onchange = e => { s.matches = Math.max(0, Math.floor(+e.target.value) || 0); render(); };
+$('reset').onclick = () => {
+  if (!confirm('Reset chest and match counts to zero? Match history is kept.')) return;
+  s.chests = s.teamChests = s.matches = 0; s.cur = { chests:0, teamChests:0, start:Date.now() }; resetTeammateCredits(); session = newSession(); render();
+};
+$('quit').onclick = () => window.api.quit();
+
+window.api.onAction(a => {
+  if (a === 'chestUp') bump('chests', 1);
+  else if (a === 'chestDown') bump('chests', -1);
+  else if (a === 'teamUp') bump('teamChests', 1);
+  else if (a === 'teamDown') bump('teamChests', -1);
+  else if (a === 'match') endMatch();
+  else if (a === 'toggle') { s.hidden = !s.hidden; render(); }
+});
+window.api.onNet(d => {
+  const keepErr = d.error !== undefined ? d.error : '';
+  const next = Object.assign({ players:[] }, d, { error: keepErr });
+  checkOvertakes(net, next);
+  net = next;
+  if (!['host', 'client'].includes(net.status)) noticeUntil = 0;
+  if (net.status === 'host' || net.status === 'client') syncTeamChests(net.players);
+  else teammateCounts.clear();
+  render();
+});
+
+window.api.onMatchEnd?.(finishMatch);
+window.api.onConfigure?.(patch => {
+  if (['personal', 'team', 'merged', 'both'].includes(patch.countMode)) s.countMode = patch.countMode;
+  for (const key of ['compact', 'recaps']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
+  if (typeof patch.name === 'string') s.name = patch.name.slice(0,20);
+  if (typeof patch.relayUrl === 'string') s.relayUrl = patch.relayUrl;
+  if (Number.isFinite(patch.opacity)) s.opacity = Math.max(0, Math.min(100, patch.opacity));
+  if (Number.isFinite(patch.odds)) s.odds = Math.max(1, patch.odds);
+  if (patch.show) for (const key of Object.keys(s.show)) if (typeof patch.show[key] === 'boolean') s.show[key] = patch.show[key];
+  if (patch.keys) { for (const key of Object.keys(s.keys)) if (typeof patch.keys[key] === 'string') s.keys[key] = patch.keys[key]; applyKeys(); }
+  render();
+});
+window.api.onCommand?.(command => {
+  if (command === 'endMatch') endMatch();
+  else if (command === 'newSession') { session = newSession(); render(); }
+  else if (command === 'reset' && net.status === 'off') {
+    s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0;
+    s.cur = { chests:0, teamChests:0, start:Date.now() }; session = newSession(); render();
+  }
+});
+
+setInterval(renderSession, 1000);
+setInterval(() => window.api.snapshot?.({ s, net, session:sessionStats(), keys:KEYS, keyOk }), 1000);
+setInterval(renderNotice, 250);
+render();
+applyKeys();
+</script></body></html>

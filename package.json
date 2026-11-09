@@ -1,0 +1,62 @@
+{
+  "name": "chest-tracker",
+  "productName": "Chest Tracker",
+  "version": "1.1.0",
+  "description": "Always-on-top chest tracker overlay",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test team-sync.test.js match.test.js relay/server.test.js",
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
+    "relay": "node relay/server.js"
+  },
+  "build": {
+    "appId": "com.chesttracker.app",
+    "productName": "Chest Tracker",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "match.js",
+      "updater.js",
+      "options.html",
+      "options.js"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "ChestTracker.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ChestTracker-Setup-${version}.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "fannsonetti",
+      "repo": "chest-tracker",
+      "releaseType": "release"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "ws": "^8.22.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fannsonetti/chest-tracker.git"
+  }
+}
