@@ -4,7 +4,7 @@ A Windows Electron MiniHUD for tracking chest openings with your squad.
 
 ## Install
 
-Download `ChestTracker-Setup-1.1.0.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
+Download `ChestTracker-Setup-1.1.1.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
 
 The current build is unsigned. Windows may show its usual unknown-publisher prompt.
 
@@ -12,7 +12,7 @@ The current build is unsigned. Windows may show its usual unknown-publisher prom
 
 - Open the settings icon for the separate options window, with Overlay, Party, Matches, and Session tabs.
 - Choose personal, team, personal/team, or merged counts. Team and merged counts include your own chests once.
-- Set your name and create or join a hosted room using a secure relay URL and room code. A production relay must be deployed before hosted rooms can be used; no production URL is bundled yet. Direct LAN hosting is also available.
+- Set your name and create or join a hosted room using a room code. The default relay is `ws://85.220.66.209:47800` on app-01. Direct LAN hosting is also available.
 - Only the party host can end a match. F8 ends a solo match or the host’s party match; guests cannot end it. Everyone receives the same frozen roster and streak recap, then starts the next match.
 - A streak is consecutive chest openings by one person, broken by another player’s opening. The host/relay receipt order resolves simultaneous openings. Openings before connection establish a baseline and are excluded from streaks. Corrections undo that player’s most recent recorded openings. Each match starts a fresh streak record.
 - Recaps include each connected player’s personal openings and the longest streak. History stores the recap. Reduced-motion settings suppress the animation.
@@ -39,8 +39,8 @@ The GitHub Actions workflow builds the installer, blockmap, and `latest.yml` whe
 
 ## Relay hosting
 
-See [relay/README.md](relay/README.md). The relay supports up to 16 players per room and host-only match ending. Room codes are bearer access: share them with your squad. Rooms close when the host disconnects; they are held in memory and do not survive a server restart.
+See [relay/README.md](relay/README.md). The relay supports up to 16 players per room and host-only match ending. app-01 runs it as an enabled user service on TCP 47800, with its firewall rule configured. The public router must forward that port to app-01; public reachability has not yet been verified. The specified IP endpoint uses plain WebSockets. Room codes are bearer access: share them with your squad. Rooms close when the host disconnects; they are held in memory and do not survive a server restart.
 
 ## Design concepts
 
-[MiniHUD concept board](docs/minihud-concepts-v2.png): A Glass, B Tactical, C Relic. These are design proposals; the current MiniHUD keeps its existing visual direction until one is selected.
+[MiniHUD SVG concept board](docs/designs/minihud-concepts.svg): A Outline (184 × 140), B Inline (184 × 64), C Ledger (184 × 122). These are compact monochrome vector proposals awaiting selection. The current MiniHUD now defaults to compact mode, uses SVG line icons and a subtle 250ms recap transition.

@@ -1,6 +1,18 @@
 # Hosted squad relay
 
-Deploy this service on an always-on server so players connect outbound instead of forwarding ports on their own computers. The app accepts `wss://` URLs (plus `ws://localhost` for development).
+Deploy this service on an always-on server so players connect outbound instead of forwarding ports on their own computers. The app accepts `wss://` URLs, `ws://localhost` for development, and the explicitly configured direct server `ws://85.220.66.209:47800`.
+
+## app-01 direct deployment
+
+The relay is installed as the `chest-tracker-relay.service` user service on app-01. It is enabled, restarts on failure, and user lingering is enabled so it runs without an active SSH login. Its environment overrides bind it to `0.0.0.0:47800`. UFW permits TCP 47800. The public router must forward TCP 47800 to app-01 on the same port; a healthy LAN endpoint does not establish public reachability.
+
+```sh
+systemctl --user status chest-tracker-relay.service
+journalctl --user -u chest-tracker-relay.service -n 50
+curl http://127.0.0.1:47800/health
+```
+
+The direct IP endpoint uses plain WebSockets. No tunnel is installed. The following Docker/proxy instructions remain an alternative deployment with encrypted transport.
 
 From the repository root on the server:
 

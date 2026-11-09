@@ -10,7 +10,7 @@
     --fg: #eceef2;
     --muted: #8f96a3;
     --faint: #7c828d;
-    --accent: #f2c265;
+    --accent: #bec9d9;
     --bad: #f0907f;
     --r: 6px;
   }
@@ -60,11 +60,11 @@
   #roster .p .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #roster .p { color: var(--muted); }
   #roster .p.me { color: var(--fg); }
-  #roster .p.me.leader { color: #ffd45e; }
-  .crown { width: 13px; height: 13px; flex: none; color: #ffd45e; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+  #roster .p.me.leader { color: var(--fg); }
+  .crown { width: 13px; height: 13px; flex: none; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
   .pair { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .pair .slash { color: var(--faint); font-weight: 400; }
-  .row .ctl { opacity: 1; }
+  .row .ctl { opacity: 0; }
   .row .ctl button { width: 16px; padding: 0; }
   .row .pair .val { font-size: 14px; }
   .row > .pair { flex-shrink: 0; }
@@ -83,7 +83,7 @@
   .btn { height: 24px; padding: 0 10px; background: var(--fill); white-space: nowrap; transition: background-color .12s; }
   .btn:hover { background: var(--fill-hi); }
   .btn.primary { background: var(--accent); color: #1b1608; font-weight: 600; }
-  .btn.primary:hover { background: #f6d084; }
+  .btn.primary:hover { background: #d3dbe6; }
   .btn.quiet { background: none; color: var(--muted); padding: 0 6px; }
   .btn.quiet:hover { color: var(--fg); background: var(--fill); }
   .addr { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .01em; }
@@ -146,15 +146,18 @@
   .compact #roster { margin-top: 4px; padding-top: 4px; }
   .compact #roster .h, .compact #roster .sum { display: none; }
   .compact #roster .p { height: 19px; font-size: 11px; }
-  #recap { position:relative; margin-top:8px; padding:14px 10px; border:1px solid #a9803b; border-radius:8px; background:radial-gradient(ellipse at top, #60421e, #15161b 75%); animation:reveal .6s ease-out; overflow:hidden; }
-  #recap h2 { font-size:11px; letter-spacing:2px; color:#f2c265; margin:0 0 10px; }
-  #recap .big { font-size:30px; font-weight:700; color:#ffdb8f; }
-  #recap .spark { position:absolute; top:20px; color:#f2c265; pointer-events:none; animation:spark 1.8s ease-out both; }
-  #recap .recap-player { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #ffffff12; }
-  #recap .dim { margin:9px 0; font-size:11px; }
-  @keyframes reveal { from { opacity:0; transform:translateY(15px) scale(.94); } to { opacity:1; transform:none; } }
-  @keyframes spark { from { opacity:1; transform:translateY(0) rotate(0); } to { opacity:0; transform:translateY(150px) rotate(180deg); } }
-  @media (prefers-reduced-motion:reduce) { #recap, #recap .spark { animation:none; } #recap .spark { display:none; } }
+  #recap { margin-top:6px; padding:9px 2px 2px; border-top:1px solid var(--line); animation:reveal .25s ease-out; }
+  #recap h2 { display:flex; align-items:center; gap:5px; font-size:10px; font-weight:500; color:var(--muted); margin:0 0 5px; }
+  #recap svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
+  #recap .big { display:flex; align-items:baseline; gap:5px; font-size:23px; font-weight:600; }
+  #recap .big small { color:var(--muted); font-size:10px; font-weight:400; }
+  #recap .recap-player { display:flex; justify-content:space-between; gap:8px; padding:3px 0; font-size:11px; }
+  #recap .recap-player span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #recap .recap-player b { font-weight:500; white-space:nowrap; }
+  #recap .dim { margin:6px 0; font-size:10px; line-height:1.5; }
+  #recap .btn { width:100%; height:22px; margin-top:3px; font-size:10px; color:var(--muted); }
+  @keyframes reveal { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion:reduce) { #recap { animation:none; } }
 </style></head>
 <body><div id="panel">
   <header id="bar">
@@ -216,14 +219,16 @@ const DEF = {
   chests:0, teamChests:0, matches:0, odds:137500,
   show:{ chests:true, teamChests:true, cpm:true, token:true }, hidden:false,
   cur:{ chests:0, teamChests:0, start:Date.now() },
-  history:[], name:'', id:'', v:2, compact:false, opacity:88,
-  countMode:'both', recaps:true, streak:0, bestStreak:0, relayUrl:'',
+  history:[], name:'', id:'', v:2, compact:true, opacity:88,
+  countMode:'both', recaps:true, streak:0, bestStreak:0, relayUrl:'ws://85.220.66.209:47800', minimalUI:1,
   keys:{ chestUp:'numadd', chestDown:'numsub', teamUp:'Ctrl+numadd', teamDown:'Ctrl+numsub', match:'F8', toggle:'F9' },
 };
 let s;
 try {
   const raw = JSON.parse(localStorage.getItem('s') || '{}');
   s = Object.assign(JSON.parse(JSON.stringify(DEF)), raw);
+  if (!raw.minimalUI) { s.compact = true; s.minimalUI = 1; }
+  if (!s.relayUrl) s.relayUrl = DEF.relayUrl;
   for (const k of ['show', 'cur', 'keys']) s[k] = Object.assign({}, DEF[k], raw[k]);
   if (!Array.isArray(s.history)) s.history = [];
   // v2: team chests include your own chests. Fold old separate counts in once.
@@ -605,11 +610,11 @@ function showRecap(players, teamTotal) {
   const winners = players.filter(p => p.bestStreak === most).map(p => p.name).join(', ');
   const opened = teamTotal ?? players.reduce((n, p) => n + p.chests, 0);
   el.hidden = false;
-  el.innerHTML = '<h2>MATCH COMPLETE</h2><div class="big">' + opened + ' <small>chests</small></div>' +
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  el.innerHTML = '<h2><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7l2.5 2.5L11 4"/></svg>Match complete</h2><div class="big">' + opened + '<small>team chests</small></div>' +
     players.map(p => '<div class="recap-player"><span>' + esc(p.name) + '</span><b>' + p.chests + ' opened</b></div>').join('') +
-    '<div class="dim">Longest streak · ' + most + ' chests in a row' + (most ? '<br>' + esc(winners) : '') + '</div>' +
-    '<button class="btn primary" id="dismissRecap">Next match</button>' +
-    Array.from({ length:16 }, (_, i) => '<span class="spark" style="left:' + (i * 6) + '%;animation-delay:' + (i % 5 * .12) + 's">✦</span>').join('');
+    '<div class="dim">Best streak · ' + most + ' in a row' + (most ? '<br>' + esc(winners) : '') + '</div>' +
+    '<button class="btn" id="dismissRecap">Next match</button>';
   $('dismissRecap').onclick = () => { el.hidden = true; render(); };
 }
 async function applyKeys() { keyOk = await window.api.setKeys(s.keys); render(); }

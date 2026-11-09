@@ -122,8 +122,9 @@ ipcMain.on('relayConnect', (_, config) => {
   leave();
   let url;
   try { url = new URL(config.url); } catch { return toUI('net', { status:'off', error:'Enter a valid relay URL.' }); }
-  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && ['localhost', '127.0.0.1'].includes(url.hostname)))
-    return toUI('net', { status:'off', error:'Use a secure wss:// relay URL.' });
+  const directServer = url.hostname === '85.220.66.209' && url.port === '47800';
+  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && (directServer || ['localhost', '127.0.0.1'].includes(url.hostname))))
+    return toUI('net', { status:'off', error:'Use the default server or a wss:// relay URL.' });
   const WebSocket = require('ws');
   const connection = relay = new WebSocket(url.href, { handshakeTimeout:8000, maxPayload:65536 });
   toUI('net', { status:'connecting', players:[] });
