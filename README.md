@@ -40,7 +40,7 @@ The GitHub Actions workflow builds the installer, blockmap, and `latest.yml` whe
 
 ## Relay hosting
 
-See [relay/README.md](relay/README.md). The relay supports up to 16 players per room and host-only match ending. app-01 runs it as an enabled user service on TCP 47800, with its firewall rule configured. The public router must forward that port to app-01; public reachability has not yet been verified. The specified IP endpoint uses plain WebSockets. Room codes are bearer access: share them with your squad. Rooms close when the host disconnects; they are held in memory and do not survive a server restart.
+See [relay/README.md](relay/README.md). The relay supports up to 16 players per room and host-only match ending. app-01 runs it as an enabled user service on TCP 47800, with its firewall rule and router forwarding configured. The public health endpoint and a two-player match through `85.220.66.209:47800` have been verified. The specified IP endpoint uses plain WebSockets. Room codes are bearer access: share them with your squad. Rooms close when the host disconnects; they are held in memory and do not survive a server restart.
 
 ## Design concepts
 

@@ -4,7 +4,7 @@ Deploy this service on an always-on server so players connect outbound instead o
 
 ## app-01 direct deployment
 
-The relay is installed as the `chest-tracker-relay.service` user service on app-01. It is enabled, restarts on failure, and user lingering is enabled so it runs without an active SSH login. Its environment overrides bind it to `0.0.0.0:47800`. UFW permits TCP 47800. The public router must forward TCP 47800 to app-01 on the same port; a healthy LAN endpoint does not establish public reachability.
+The relay is installed as the `chest-tracker-relay.service` user service on app-01. It is enabled, restarts on failure, and user lingering is enabled so it runs without an active SSH login. Its environment overrides bind it to `0.0.0.0:47800`. UFW permits TCP 47800, and the router forwards that port to app-01. Both the public health endpoint and a two-player room/match/streak test through `85.220.66.209:47800` passed on November 9, 2026.
 
 ```sh
 systemctl --user status chest-tracker-relay.service
