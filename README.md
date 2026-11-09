@@ -44,4 +44,4 @@ See [relay/README.md](relay/README.md). The relay supports up to 16 players per 
 
 ## Design concepts
 
-[MiniHUD SVG concept board](docs/designs/minihud-concepts.svg): A Outline (184 × 140), B Inline (184 × 64), C Ledger (184 × 122). These are compact monochrome vector proposals awaiting selection. The current MiniHUD now defaults to compact mode, uses SVG line icons and a subtle 250ms recap transition.
+[MiniHUD SVG concept board](docs/designs/minihud-concepts.svg): A Outline (224 × 344), B Inline (248 × 348), C Ledger (224 × 344). Each proposal shows personal/team counts for this game, lifetime, and session, plus rates, token chances, streaks, and squad game/lifetime totals. These are compact monochrome vector proposals awaiting selection. The current MiniHUD defaults to compact mode, uses SVG line icons and a subtle 250ms recap transition; the expanded-stat proposals have not yet been implemented in the app.
