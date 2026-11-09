@@ -32,6 +32,12 @@ test('host controls match endings; everyone receives the same recap; host depart
     const created = await hostMsg('roster');
     assert.match(created.code,/^[A-F0-9]{10}$/);
     assert.equal(created.players[0].matchStart,123456789);
+    send(host,{t:'state',p:{id:'host',name:'Host',chests:6,matchStart:123456789}});
+    const alone = await hostMsg('roster');
+    assert.equal(alone.players[0].streak,0);
+    assert.equal(alone.players[0].bestStreak,0);
+    send(host,{t:'state',p:{id:'host',name:'Host',chests:3,matchStart:123456789}});
+    await hostMsg('roster');
     send(client,{ t:'join',code:created.code,p:{ id:'friend',name:'Friend',chests:5 } });
     assert.equal((await clientMsg('roster')).role,'client'); await hostMsg('roster');
     send(host,{ t:'state',p:{ id:'host',name:'Host',chests:6,matchStart:123456789 } });

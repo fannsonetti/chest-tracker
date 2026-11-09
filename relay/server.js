@@ -12,6 +12,14 @@ function createRelay() {
   const wss = new WebSocketServer({ server, maxPayload:8192 });
   const send = (c, data) => { if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify(data)); };
   const fail = (c, error) => send(c, { t:'error', error });
+  const lobbyList = () => ({ t:'lobbies', rooms:[...rooms.values()].map(room => ({
+    id:room.code, name:([...room.members.values()][0]?.name || 'Player') + '’s room',
+    players:room.members.size
+  })) });
+  function broadcastLobbies() {
+    const list = lobbyList();
+    for (const client of wss.clients) if (client.browsing) send(client, list);
+  }
   const count = v => Math.max(0, Math.min(99999, Math.floor(Number(v) || 0)));
   function clean(p = {}) {
     if (!p || typeof p !== 'object') p = {};
@@ -20,6 +28,7 @@ function createRelay() {
       matchStart:Math.max(0, Number(p.matchStart) || 0), streak:count(p.streak), bestStreak:count(p.bestStreak) };
   }
   function broadcast(room) {
+    room.streaks.setCompetitive(room.members.size > 1);
     const players = room.streaks.live([...room.members.values()]);
     for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, players });
   }
@@ -31,6 +40,7 @@ function createRelay() {
       rooms.delete(room.code);
       for (const peer of room.members.keys()) { peer.room = null; peer.close(1000, 'Host left'); }
     } else broadcast(room);
+    broadcastLobbies();
   }
   wss.on('connection', c => {
     c.alive = true;
@@ -45,7 +55,11 @@ function createRelay() {
       let m;
       try { m = JSON.parse(data); } catch { return fail(c, 'Invalid message'); }
       if (!m || typeof m !== 'object') return fail(c, 'Invalid message');
-      if (m.t === 'create' || m.t === 'join') {
+      if (m.t === 'browse') {
+        c.browsing = true; send(c, lobbyList());
+      } else if (m.t === 'leave') {
+        detach(c); send(c, { t:'left' });
+      } else if (m.t === 'create' || m.t === 'join') {
         if (c.room) return fail(c, 'Already in a party');
         const p = clean(m.p);
         if (!p.id) return fail(c, 'Player ID required');
@@ -54,7 +68,7 @@ function createRelay() {
           if (rooms.size >= 1000) return fail(c, 'Relay is full');
           let code;
           do { code = randomBytes(5).toString('hex').toUpperCase(); } while (rooms.has(code));
-          room = { code, host:c, members:new Map(), lastEnd:0, streaks:new OpeningStreaks() };
+          room = { code, host:c, members:new Map(), lastEnd:0, start:now, streaks:new OpeningStreaks() };
           rooms.set(code, room);
         } else {
           room = rooms.get(String(m.code || '').trim().toUpperCase());
@@ -63,20 +77,25 @@ function createRelay() {
           if ([...room.members.values()].some(q => q.id === p.id)) return fail(c, 'This player is already connected');
         }
         c.room = room; room.members.set(c, p); room.streaks.observe(p.id, p.chests); broadcast(room);
+        broadcastLobbies();
       } else if (m.t === 'state' && c.room) {
         const p = clean(m.p), old = c.room.members.get(c);
         p.id = old.id;
         // Match timestamps need their full precision (not a bounded count).
         p.matchStart = Math.max(0, Number(m.p?.matchStart) || 0);
         if (c.room.lastEnd && p.matchStart < c.room.lastEnd) return;
+        c.room.streaks.setCompetitive(c.room.members.size > 1);
         c.room.streaks.observe(p.id, p.chests);
         c.room.members.set(c, p); broadcast(c.room);
+        if (old.name !== p.name) broadcastLobbies();
       } else if (m.t === 'endMatch' && c.room) {
         const room = c.room;
         if (room.host !== c) return fail(c, 'Only the host can end a match');
         if (now - room.lastEnd < 1500) return;
         room.lastEnd = now;
-        const message = { t:'matchEnd', id:randomUUID(), end:now, players:room.streaks.recap([...room.members.values()]) };
+        const message = { t:'matchEnd', id:randomUUID(), start:room.start, end:now,
+          timeline:room.streaks.timeline(), players:room.streaks.recap([...room.members.values()]) };
+        room.start = now;
         for (const peer of room.members.keys()) send(peer, message);
         room.streaks.reset();
         for (const [peer, p] of room.members) {

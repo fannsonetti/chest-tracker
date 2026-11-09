@@ -1,11 +1,11 @@
 {
   "name": "chest-tracker",
   "productName": "Chest Tracker",
-  "version": "1.1.5",
+  "version": "1.1.7",
   "description": "Always-on-top chest tracker overlay",
   "main": "main.js",
   "scripts": {
-    "test": "node --test team-sync.test.js match.test.js relay/server.test.js",
+    "test": "node --test team-sync.test.js match.test.js hosted-connection.test.js relay/server.test.js",
     "start": "electron .",
     "dist": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable",
@@ -19,8 +19,15 @@
       "preload.js",
       "index.html",
       "match.js",
+      "recap.css",
+      "recap.html",
+      "recap.js",
+      "sound.js",
+      "click.wav",
+      "hosted-connection.js",
       "updater.js",
       "options.html",
+      "options.css",
       "options.js"
     ],
     "directories": {

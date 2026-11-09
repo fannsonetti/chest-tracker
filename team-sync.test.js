@@ -25,6 +25,59 @@ function tracker() {
   };
 }
 const peer = (chests, matchStart = 100) => ({ id: 'teammate', name: 'Friend', chests, teamChests: chests, matchStart });
+
+test('alone offline or in a hosted lobby has no HUD streak or saved solo streak', () => {
+  const t = tracker();
+  t.run("bump('chests',8); renderRoster()");
+  assert.equal(t.run('rankedPlayers()[0].streak'),0);
+  assert.equal(t.run("$('roster').innerHTML.includes('class=\"streak')"),false);
+  t.roster([{id:t.run('s.id'), name:'You', chests:8, streak:8, bestStreak:8}]);
+  assert.equal(t.run('rankedPlayers()[0].streak'),0);
+  t.run('finishMatch()');
+  assert.equal(t.run('s.history[0].recap[0].bestStreak'),0);
+});
+
+test('subtraction is limited to the current match and never touches completed counts', () => {
+  const t = tracker();
+  t.run("bump('chests', 5); bump('teamChests', 3); finishMatch(); bump('chests', -1); bump('teamChests', -1)");
+  assert.deepEqual(t.counts(),[5,8,0,0]);
+  t.run("bump('chests', 2); bump('teamChests', 4); bump('chests', -99); bump('teamChests', -99)");
+  assert.deepEqual(t.counts(),[5,8,0,0]);
+  assert.equal(t.run('s.history[0].chests'),5);
+  assert.equal(t.run('s.history[0].teamChests'),8);
+  assert.equal(t.run('session.chests'),5);
+  assert.equal(t.run('session.teamChests'),8);
+});
+
+test('valid mouse and hotkey count changes play a click; rejected subtraction and muted changes do not', () => {
+  const t = tracker();
+  t.run('window.clicks = 0; window.playTrackerClick = () => window.clicks++');
+  t.run("bump('chests', 1); bump('chests', -1); bump('chests', -1)");
+  assert.equal(t.run('window.clicks'),2);
+  t.run("s.sound = false; bump('chests', 1)");
+  assert.equal(t.run('window.clicks'),2);
+});
+
+test('teammate corrections after a manual correction cannot subtract completed match totals', () => {
+  const t = tracker();
+  t.run("bump('teamChests', 7); finishMatch()");
+  t.roster([peer(0)]); t.roster([peer(3)]);
+  t.run("bump('teamChests', -3)");
+  t.roster([peer(0)]);
+  assert.deepEqual(t.counts(),[0,7,0,0]);
+  t.roster([peer(1)]);
+  assert.deepEqual(t.counts(),[0,8,0,1]);
+});
+
+test('match summary is sent to the popup after freezing the match, without changing the next match', () => {
+  const t = tracker();
+  t.run("s.recaps = true; window.api.showRecap = data => window.popup = data; bump('chests', 3); finishMatch()");
+  assert.equal(t.run('window.popup.teamChests'),3);
+  assert.equal(t.run('window.popup.recap[0].chests'),3);
+  assert.equal(t.run('s.cur.chests'),0);
+  t.run("bump('chests', 1)");
+  assert.equal(t.run('window.popup.recap[0].chests'),3);
+});
 test('joining a teammate with 120 chests keeps my 70 and counts only subsequent openings', () => {
   const t = tracker();
   t.run("bump('teamChests', 70)");

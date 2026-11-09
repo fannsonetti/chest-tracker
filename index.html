@@ -190,7 +190,8 @@
   .row .pair .ctl button { width:10px; height:12px; }
   .row.token { border-top:1px solid var(--line); margin-top:5px; padding-top:7px; height:31px; }
   .row.token .val { font-size:11px; color:var(--fg); }
-</style></head>
+
+</style><link rel="stylesheet" href="recap.css"></head>
 <body><div id="panel">
   <header id="bar">
     <div class="title"><span id="matchNo">Match 1</span><span id="matchNow"></span></div>
@@ -206,7 +207,6 @@
   <div id="statHead"></div>
   <div id="rows"></div>
   <div id="notice" role="status" aria-live="polite" hidden></div>
-  <div id="recap" role="status" aria-live="polite" hidden></div>
 
   <section class="view" id="v-party"></section>
   <section class="view" id="v-session">
@@ -236,6 +236,7 @@
   </section>
 </div>
 <script src="match.js"></script>
+<script src="sound.js"></script>
 <script>
 // Browser fallback so the page can be previewed outside Electron.
 window.api = window.api || { onAction(){}, resize(){}, quit(){}, setKeys: async k => Object.fromEntries(Object.keys(k).map(a => [a, true])), pauseKeys(){}, resumeKeys(){}, onNet(){}, netState(){}, netHost(){}, netJoin(){}, netLeave(){} };
@@ -253,7 +254,7 @@ const DEF = {
   show:{ chests:true, teamChests:true, cpm:true, token:true }, hidden:false,
   cur:{ chests:0, teamChests:0, start:Date.now() },
   history:[], name:'', id:'', v:2, compact:true, opacity:88,
-  countMode:'both', recaps:true, streak:0, bestStreak:0, relayUrl:'ws://85.220.66.209:47800', minimalUI:1,
+  countMode:'both', recaps:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
   keys:{ chestUp:'numadd', chestDown:'numsub', teamUp:'Ctrl+numadd', teamDown:'Ctrl+numsub', match:'F8', toggle:'F9' },
 };
 let s;
@@ -261,7 +262,7 @@ try {
   const raw = JSON.parse(localStorage.getItem('s') || '{}');
   s = Object.assign(JSON.parse(JSON.stringify(DEF)), raw);
   if (!raw.minimalUI) { s.compact = true; s.minimalUI = 1; }
-  if (!s.relayUrl) s.relayUrl = DEF.relayUrl;
+
   for (const k of ['show', 'cur', 'keys']) s[k] = Object.assign({}, DEF[k], raw[k]);
   if (!Array.isArray(s.history)) s.history = [];
   // v2: team chests include your own chests. Fold old separate counts in once.
@@ -309,8 +310,9 @@ function syncTeamChests(players) {
     const before = teammateCounts.get(p.id);
     const sameMatch = before && before.matchStart === p.matchStart;
     const credited = sameMatch ? before.credited : 0;
-    const delta = !before ? 0 : sameMatch ? Math.max(-credited, p.chests - before.chests) : p.chests;
-    teammateCounts.set(p.id, { matchStart:p.matchStart, chests:p.chests, credited:credited + delta });
+    const reportedDelta = !before ? 0 : sameMatch ? Math.max(-credited, p.chests - before.chests) : p.chests;
+    const delta = Math.max(-(s.cur.teamChests - s.cur.chests), reportedDelta);
+    teammateCounts.set(p.id, { matchStart:p.matchStart, chests:p.chests, credited:credited + reportedDelta });
     if (delta) {
       const beforeTeam = s.teamChests;
       bumpIn(s, 'teamChests', delta);
@@ -338,8 +340,9 @@ const STATS = [
 const COMPACT_W = 224, FULL_W = 248;
 
 function paired(personal, team, controls = false) {
+  const canSubtract = field => (field === 'chests' ? s.cur.chests : s.cur.teamChests - s.cur.chests) > 0;
   const value = (n, field, label) => '<span class="pair" title="' + label + '">' +
-    (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="-1" aria-label="Remove one ' + label.toLowerCase() + '">' + ICON_MINUS + '</button></span>' : '') +
+    (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="-1"' + (canSubtract(field) ? '' : ' disabled') + ' aria-label="Remove one ' + label.toLowerCase() + '">' + ICON_MINUS + '</button></span>' : '') +
     '<span class="val">' + esc(n) + '</span>' +
     (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="1" aria-label="Add one ' + label.toLowerCase() + '">' + ICON_PLUS + '</button></span>' : '') + '</span>';
   if (s.countMode === 'personal') return value(personal, 'chests', 'Personal chests');
@@ -354,8 +357,8 @@ function rankedPlayers() {
   const players = net.players.filter(p => p.id !== s.id);
   const own = net.players.find(p => p.id === s.id);
   players.push({ id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start,
-    streak:['host','client'].includes(net.status) ? (own?.streak || 0) : s.cur.chests,
-    bestStreak:own?.bestStreak || s.cur.chests });
+    streak:players.length ? (own?.streak || 0) : 0,
+    bestStreak:players.length ? (own?.bestStreak || 0) : 0 });
   return players.sort((a, b) => b.chests - a.chests || String(a.id).localeCompare(String(b.id)));
 }
 
@@ -451,7 +454,7 @@ function renderRoster() {
   const rows = players.map(p => {
     const mine = p.id === s.id;
     const leader = p.id === leaderId;
-    const showStreak = p.id === streakOwner?.id;
+    const showStreak = players.length > 1 && p.id === streakOwner?.id;
     const run = active ? active.streak : 0;
     return '<div class="p' + (mine ? ' me' : '') + (leader ? ' leader' : '') + '"><span class="name"><span class="leader-slot">' + (leader ? CROWN : '') + '</span><span class="player-name">' + esc(mine ? 'You' : p.name) + '</span></span>' +
       '<span class="n">' + esc(p.chests) + '</span>' + (showStreak ? '<span class="streak' + (active ? ' active' : '') + '" aria-label="' + (active ? 'Active' : 'Inactive') + ' opening streak: ' + run + '">' + FIRE + '<span>' + run + '</span></span>' : '<span></span>') + '</div>';
@@ -482,38 +485,8 @@ function renderSession() {
 }
 
 function renderParty() {
-  const el = $('v-party');
-  if (view !== 'party') { lastParty = ''; return; }
-  const sig = JSON.stringify([net.status, net.error, net.host, net.addresses, net.port]);
-  if (sig === lastParty) return;   // unchanged: keep inputs (and focus) intact
-  lastParty = sig;
-  const nameField = '<div class="field"><input type="text" id="pname" maxlength="20" placeholder="Your name" value="' + esc(s.name) + '"></div>';
-  let html;
-  if (net.status === 'host') {
-    const addr = (net.addresses || []).map(a => '<div class="addr">' + esc(a) + '</div>').join('') || '<div class="dim">No network found</div>';
-    html = '<div class="h">Hosting · friends join with</div>' + addr +
-      '<div class="actions"><span class="dim">Port ' + net.port + '</span><span class="spacer"></span><button class="btn" id="leave">End party</button></div>';
-  } else if (net.status === 'client') {
-    html = '<div class="h">Linked to</div><div class="addr">' + esc(net.host) + '</div>' +
-      '<div class="actions"><span class="spacer"></span><button class="btn" id="leave">Leave</button></div>';
-  } else if (net.status === 'connecting') {
-    html = '<div class="empty">Connecting…</div><div class="actions"><span class="spacer"></span><button class="btn" id="leave">Cancel</button></div>';
-  } else {
-    html = '<div class="h">Link with your squad for this match</div>' + nameField +
-      '<div class="field"><input type="text" id="joinAddr" placeholder="Host address" value="' + esc(s.lastHost || '') + '"><button class="btn" id="join">Join</button></div>' +
-      '<div class="actions"><button class="btn primary" id="host">Host party</button></div>' +
-      (net.error ? '<div class="err">' + esc(net.error) + '</div>' : '');
-  }
-  el.innerHTML = html;
-  const pn = $('pname');
-  if (pn) pn.oninput = e => { s.name = e.target.value.slice(0, 20); save(); pushNet(); };
-  if ($('host')) $('host').onclick = () => { net.error = ''; window.api.netHost(); };
-  if ($('join')) {
-    const go = () => { const v = $('joinAddr').value.trim(); s.lastHost = v; save(); net.error = ''; window.api.netJoin(v); };
-    $('join').onclick = go;
-    $('joinAddr').onkeydown = e => { if (e.key === 'Enter') go(); };
-  }
-  if ($('leave')) $('leave').onclick = () => window.api.netLeave();
+  if (view !== 'party') return;
+  $('v-party').innerHTML = '<div class="dim">Open Party in Options to create a room or browse public lobbies.</div>';
 }
 
 function renderHistory() {
@@ -612,11 +585,19 @@ function bumpIn(o, f, d) {
     o.teamChests = Math.max(o.chests, o.teamChests + d);
   }
 }
+const soloOpenings = new OpeningStreaks();
+soloOpenings.observe(s.id, s.cur.chests);
 function bump(f, d) {
+  if (!['chests','teamChests'].includes(f) || !Number.isFinite(d)) return;
+  const available = f === 'chests' ? s.cur.chests : s.cur.teamChests - s.cur.chests;
+  d = Math.max(-available, Math.trunc(d));
+  if (!d) return;
   const beforeChests = s.chests, beforeTeam = s.teamChests;
   bumpIn(s, f, d);
   bumpIn(s.cur, f, d);
+  soloOpenings.observe(s.id, s.cur.chests);
   recordSession(s.chests - beforeChests, s.teamChests - beforeTeam);
+  if (s.sound) window.playTrackerClick?.();
   render();
 }
 function endMatch() {
@@ -628,7 +609,7 @@ let lastMatchId = null;
 function finishMatch(event) {
   if (event && event.id === lastMatchId) return;
   if (event) lastMatchId = event.id;
-  const players = event?.players || rankedPlayers().map(p => ({ ...p, bestStreak:p.chests }));
+  const players = event?.players || rankedPlayers();
   const result = recapPlayers(players);
   const own = result.find(p => p.id === s.id);
   s.streak = own?.bestStreak || 0;
@@ -639,7 +620,7 @@ function finishMatch(event) {
   s.matches += 1;
   const party = (net.status === 'host' || net.status === 'client')
     ? net.players.filter(p => p.id !== s.id).map(p => ({ name:p.name, chests:p.chests, teamChests:p.teamChests })) : [];
-  s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result });
+  s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result, recapTeamTotal:event ? result.reduce((n,p)=>n+p.chests,0) : s.cur.teamChests, timeline:event?.timeline || soloOpenings.timeline(), timelineStart:event?.start || s.cur.start });
   if (s.history.length > 300) s.history.splice(0, s.history.length - 300);
   s.cur = { chests:0, teamChests:0, start:event?.end || Date.now() };
   if (event) {
@@ -648,21 +629,12 @@ function finishMatch(event) {
   }
   noticeUntil = 0;
   resetTeammateCredits();
-  if (s.recaps) showRecap(result, event ? result.reduce((n,p)=>n+p.chests,0) : s.history.at(-1).teamChests);
+  soloOpenings.reset(); soloOpenings.observe(s.id, 0);
+  if (s.recaps) showRecap(result, event ? result.reduce((n,p)=>n+p.chests,0) : s.history.at(-1).teamChests, s.history.at(-1));
   render();
 }
-function showRecap(players, teamTotal) {
-  const el = $('recap');
-  const most = Math.max(0, ...players.map(p => p.bestStreak || 0));
-  const winners = players.filter(p => p.bestStreak === most).map(p => p.name).join(', ');
-  const opened = teamTotal ?? players.reduce((n, p) => n + p.chests, 0);
-  el.hidden = false;
-  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
-  el.innerHTML = '<h2><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7l2.5 2.5L11 4"/></svg>Match complete</h2><div class="big">' + opened + '<small>team chests</small></div>' +
-    players.map(p => '<div class="recap-player"><span>' + esc(p.name) + '</span><b>' + p.chests + ' opened</b></div>').join('') +
-    '<div class="dim">Best streak · ' + most + ' in a row' + (most ? '<br>' + esc(winners) : '') + '</div>' +
-    '<button class="btn" id="dismissRecap">Next match</button>';
-  $('dismissRecap').onclick = () => { el.hidden = true; render(); };
+function showRecap(players, teamTotal, match) {
+  window.api.showRecap?.({ ...match, start:match.timelineStart || match.start, recap:players, teamChests:teamTotal });
 }
 async function applyKeys() { keyOk = await window.api.setKeys(s.keys); render(); }
 
@@ -703,7 +675,7 @@ $('odds').onchange = e => { s.odds = Math.max(1, +e.target.value || DEF.odds); r
 $('matches').onchange = e => { s.matches = Math.max(0, Math.floor(+e.target.value) || 0); render(); };
 $('reset').onclick = () => {
   if (!confirm('Reset chest and match counts to zero? Match history is kept.')) return;
-  s.chests = s.teamChests = s.matches = 0; s.cur = { chests:0, teamChests:0, start:Date.now() }; resetTeammateCredits(); session = newSession(); render();
+  s.chests = s.teamChests = s.matches = 0; s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); resetTeammateCredits(); session = newSession(); render();
 };
 $('quit').onclick = () => window.api.quit();
 
@@ -729,9 +701,9 @@ window.api.onNet(d => {
 window.api.onMatchEnd?.(finishMatch);
 window.api.onConfigure?.(patch => {
   if (['personal', 'team', 'merged', 'both'].includes(patch.countMode)) s.countMode = patch.countMode;
-  for (const key of ['compact', 'recaps']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
+  for (const key of ['compact', 'recaps', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
   if (typeof patch.name === 'string') s.name = patch.name.slice(0,20);
-  if (typeof patch.relayUrl === 'string') s.relayUrl = patch.relayUrl;
+
   if (Number.isFinite(patch.opacity)) s.opacity = Math.max(0, Math.min(100, patch.opacity));
   if (Number.isFinite(patch.odds)) s.odds = Math.max(1, patch.odds);
   if (patch.show) for (const key of Object.keys(s.show)) if (typeof patch.show[key] === 'boolean') s.show[key] = patch.show[key];
@@ -743,7 +715,7 @@ window.api.onCommand?.(command => {
   else if (command === 'newSession') { session = newSession(); render(); }
   else if (command === 'reset' && net.status === 'off') {
     s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0;
-    s.cur = { chests:0, teamChests:0, start:Date.now() }; session = newSession(); render();
+    s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); session = newSession(); render();
   }
 });
 

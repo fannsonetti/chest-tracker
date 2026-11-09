@@ -10,14 +10,17 @@ The current build is unsigned. Windows may show its usual unknown-publisher prom
 
 ## Use
 
-- Open the settings icon for the separate options window, with Overlay, Party, Matches, and Session tabs.
+- Open the settings icon for the separate options window, with Overlay, Party, Matches, Session, and Leaderboards tabs styled to match the MiniHUD.
+- Leaderboards show each player’s best single-match chest count and opening streak for Solo, Duo, Trio, and Squads, using up to 300 locally saved matches. Solo streaks are unavailable; custom lobbies above four players are excluded.
 - Choose personal, team, personal/team, or merged counts. Team and merged counts include your own chests once.
-- Set your name and create or join a hosted room using a room code. The default relay is `ws://85.220.66.209:47800` on app-01. Direct LAN hosting is also available.
-- On app-01’s network, the Party tab’s **Same network** shortcut uses `ws://192.168.0.57:47800`. **Internet** selects the public address for friends outside that network.
+- Set your name in Party and choose **Create room**, or **Join** a room in the public lobby browser. All rooms use the default hosted server; no server settings, LAN mode, room code, or address entry is needed.
 - Only the party host can end a match. F8 ends a solo match or the host’s party match; guests cannot end it. Everyone receives the same frozen roster and streak recap, then starts the next match.
-- A streak is consecutive chest openings by one person, broken by another player’s opening. The host/relay receipt order resolves simultaneous openings. Openings before connection establish a baseline and are excluded from streaks. Corrections undo that player’s most recent recorded openings. Each match starts a fresh streak record.
-- Recaps include each connected player’s personal openings and the longest streak. History stores the recap. Reduced-motion settings suppress the animation.
+- A streak is consecutive chest openings by one person, broken by another player’s opening. The host receipt order resolves simultaneous openings. Openings before connection establish a baseline and are excluded from streaks. Corrections undo that player’s most recent recorded openings. Each match starts a fresh streak record.
+- Match recaps open in a centered popup and show duration, player contributions, opening leaders, longest streaks, and a cumulative opening timeline per player. Matches history keeps the full recap. Timelines record openings after connection; corrections undo the latest openings. Reduced-motion settings suppress the animation.
+- Chest subtraction stops at the current match’s counts. Completed matches stay unchanged. Click feedback plays for mouse and hotkey count changes; Overlay options include a sound toggle and test button.
 - Default keys: numpad `+` / `-` for personal chests, Ctrl+numpad `+` / `-` for team corrections, F8 to end a match, F9 to hide stats. Bindings are configurable.
+
+Streaks require at least two players in the lobby. Openings while alone do not build a streak or carry into a streak when someone joins. Close dismisses the recap; previous recaps remain available under Matches → View full recap.
 
 Counts and history are stored locally, not in a cloud account. Session rates reset when the app opens or you select New session.
 
@@ -38,9 +41,11 @@ npm run dist -- --publish never
 
 The GitHub Actions workflow builds the installer, blockmap, and `latest.yml` when a `v*` tag is pushed, or when manually dispatched. Bump `package.json` and lockfile version together, commit, and push a matching version tag. Public GitHub Releases provide the update feed; never embed a GitHub token in the app. Automatic updates follow published versions, not every source commit.
 
-## Relay hosting
+## Hosted rooms
 
-See [relay/README.md](relay/README.md). The relay supports up to 16 players per room and host-only match ending. app-01 runs it as an enabled user service on TCP 47800, with its firewall rule and router forwarding configured. The public health endpoint and a two-player match through `85.220.66.209:47800` have been verified. The specified IP endpoint uses plain WebSockets. Room codes are bearer access: share them with your squad. Rooms close when the host disconnects; they are held in memory and do not survive a server restart.
+Squad traffic and the public lobby browser always use the default server at ws://85.220.66.209:47800. Create room publishes your room to everyone using that server. Choose Join in the browser to connect. The browser updates when players join, leave, or close rooms. Each room supports 16 players and closes when its host leaves. Direct LAN and custom server selection are not available.
+
+The server in relay/server.js must include public lobby discovery and recap timelines. See [relay/README.md](relay/README.md) for deployment.
 
 ## Design concepts
 

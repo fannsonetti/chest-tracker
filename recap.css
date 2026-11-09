@@ -1,0 +1,15 @@
+#recap{max-height:420px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#56606d transparent}
+.recap-meta,.recap-axis,.recap-person small,.recap-timeline small{font-size:10px;color:#a4acba}
+.recap-meta{margin:5px 0}.recap-highlight{font-size:11px;margin:9px 0;line-height:1.5}
+.recap-person{margin:6px 0;animation:recap-in .4s both;animation-delay:var(--delay)}
+.recap-person .recap-player{display:flex;justify-content:space-between;gap:8px;font-size:11px}
+.recap-person .recap-player span{color:var(--player);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recap-track{height:3px;background:#ffffff12;border-radius:3px;margin:3px 0;overflow:hidden}
+.recap-track i{display:block;height:100%;background:var(--player);transform-origin:left;animation:recap-grow .8s both;animation-delay:var(--delay)}
+.recap-timeline{margin-top:10px}.recap-timeline b{font-size:11px;font-weight:500}
+#recap .recap-timeline svg,.recap-timeline svg{display:block;width:100%;height:auto;fill:none;stroke:none;margin:5px 0 0}
+.recap-axis{display:flex;justify-content:space-between}.recap-line{stroke-dasharray:500;animation:recap-draw 2s ease-out both}
+@keyframes recap-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@keyframes recap-grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes recap-draw{from{stroke-dashoffset:500}to{stroke-dashoffset:0}}
+@media(prefers-reduced-motion:reduce){.recap-person,.recap-track i,.recap-line{animation:none}}

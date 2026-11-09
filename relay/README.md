@@ -1,6 +1,6 @@
 # Hosted squad relay
 
-Deploy this service on an always-on server so players connect outbound instead of forwarding ports on their own computers. The app accepts `wss://` URLs, `ws://localhost` for development, and the explicitly configured app-01 addresses `ws://85.220.66.209:47800` (Internet) and `ws://192.168.0.57:47800` (Same network).
+Deploy this service on an always-on server so players connect outbound instead of forwarding ports on their own computers. The app always uses the default hosted server at `ws://85.220.66.209:47800`. There are no server or LAN selectors.
 
 ## app-01 direct deployment
 
@@ -11,6 +11,8 @@ systemctl --user status chest-tracker-relay.service
 journalctl --user -u chest-tracker-relay.service -n 50
 curl http://127.0.0.1:47800/health
 ```
+
+The public lobby and full recap timeline update was deployed on November 9, 2026. Its server-side tests and a public two-player lobby/match/timeline check passed. The active release is `~/.local/share/chest-tracker-relay/releases/hosted-lobbies-20261109`.
 
 The direct IP endpoint uses plain WebSockets. No tunnel is installed. The following Docker/proxy instructions remain an alternative deployment with encrypted transport.
 
@@ -25,7 +27,7 @@ The relay binds its published port to loopback. Put an HTTPS reverse proxy in fr
 
 If Docker is unavailable, use Node.js 22.12+ and run `npm ci --omit=dev --ignore-scripts` followed by `npm run relay`. The default bind is `127.0.0.1:47801`; override `HOST` and `PORT` as needed. Run it under your service manager for automatic restarts.
 
-Configure the resulting `wss://` URL in the app’s Party tab. Create room, share the ten-character code, then have friends join using the same relay URL and code.
+Create room in the Party tab, then have friends choose Join in the public lobby browser. Rooms are public and update as players join, leave, or close rooms. Deploy the current server code for lobby browsing and full recap timelines; older clients may still join using room codes.
 
 The service sends immutable match-end snapshots to everyone before resetting the room. The host is assigned by the server, rather than by a client-supplied flag. Guests cannot end a match. Counts are self-reported; this is a squad tracker rather than an anti-cheat system. Corrected openings rebuild the sequence used for streaks, and stale states from the prior match are ignored.
 

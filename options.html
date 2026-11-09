@@ -3,9 +3,9 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
 <style>
 :root{color-scheme:dark;font:14px/1.5 'Segoe UI',sans-serif;color:#edf0f6;background:#101217}*{box-sizing:border-box}body{margin:0}header{padding:26px 32px 20px;border-bottom:1px solid #ffffff15}h1{margin:0;font-size:24px}p{color:#a4acba;margin:6px 0 14px}nav{display:flex;gap:8px;margin-top:20px}button,input,select{font:inherit}button,select,input{color:inherit;border:1px solid #ffffff20;border-radius:7px;background:#20242d;padding:8px 12px}button{cursor:pointer}button:hover{background:#303744}button:disabled{opacity:.45;cursor:default}button.active,.primary{background:#f2c265;color:#211a0b;border-color:#f2c265}main{padding:24px 32px;max-width:1000px;margin:auto}section[hidden]{display:none}h2{font-size:16px;margin:0 0 12px}article{border:1px solid #ffffff15;border-radius:12px;background:#171a21;padding:20px;margin-bottom:18px}.setting{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:12px 0}.setting small{display:block;color:#a4acba;max-width:360px}.setting input[type=number]{width:130px}.setting input[type=range]{width:160px}input[type=text],input[type=url]{width:100%;user-select:text}input[type=checkbox]{accent-color:#f2c265;width:18px;height:18px}.field{margin:12px 0;display:flex;gap:8px}.status{font-size:12px;color:#b8c1d1}.error{color:#ffab9a}.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{padding:14px;background:#222733;border-radius:8px}.stat b{display:block;font-size:24px}.key{min-width:160px;text-align:center}.key.wait{color:#f2c265}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:10px 6px;text-align:left;border-bottom:1px solid #ffffff15}th{color:#a4acba;font-weight:400}code{font-size:24px;letter-spacing:3px;color:#f2c265}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #f2c265;outline-offset:3px}.note{font-size:12px;color:#a4acba}
-</style></head><body>
-<header><h1>Chest Tracker</h1><p>Your overlay, your squad, your pace.</p><nav>
-<button data-tab="settings">Overlay</button><button data-tab="party">Party</button><button data-tab="history">Matches</button><button data-tab="session">Session</button>
+</style><link rel="stylesheet" href="recap.css"><link rel="stylesheet" href="options.css"></head><body>
+<header><h1>Chest Tracker</h1><p>Overlay settings &amp; squad records</p><nav>
+<button data-tab="settings">Overlay</button><button data-tab="party">Party</button><button data-tab="history">Matches</button><button data-tab="session">Session</button><button data-tab="leaderboards">Leaderboards</button>
 </nav></header><main>
 <section id="settings">
 <article><h2>MiniHUD</h2>
@@ -14,17 +14,19 @@
 <label class="setting"><span>Background opacity <output id="opacityValue"></output></span><input type="range" id="opacity" min="0" max="100" step="5"></label>
 <div id="statToggles"></div>
 <label class="setting"><span>Animated match recaps<small>Honors Windows reduced-motion settings.</small></span><input type="checkbox" id="recaps"></label>
-<p class="note">Longest streak counts consecutive chest openings by one player, broken when another player opens a chest.</p>
+<label class="setting"><span>Chest click sound<small>Plays when a chest count changes, including global shortcuts.</small></span><input type="checkbox" id="sound"></label><button id="testSound">Test click sound</button>
+<p class="note">Streaks count consecutive openings before another player opens a chest. At least two players must be in the lobby; solo openings never build a streak.</p>
 </article>
 <article><h2>Global shortcuts</h2><p>Click a binding, then press your shortcut. Escape cancels; Backspace clears.</p><div id="keys"></div><div class="error" id="keyError"></div></article>
 <article><h2>Tracking</h2><label class="setting"><span>Token odds · 1 in</span><input id="odds" type="number" min="1"></label><p class="note">Reset is available while disconnected. Match history is kept.</p><button id="reset">Reset counts</button></article>
 <article><h2>Updates</h2><div class="status" id="update">Checking…</div><p class="note">The installed app checks on every launch and automatically downloads new releases.</p></article>
 </section>
-<section id="party" hidden><article><h2>Squad connection</h2><label>Your name<input type="text" id="name" maxlength="20" placeholder="Player name"></label><div class="field"><select id="transport"><option value="relay">Hosted room · no port forwarding</option><option value="lan">Direct LAN</option></select></div>
-<div id="relayFields"><label>Relay server<input type="url" id="relayUrl" placeholder="ws://85.220.66.209:47800"></label><div class="field"><button id="relayInternet">Internet</button><button id="relayLocal">Same network</button></div><p class="note">Friends use Internet. On app-01’s network, use Same network if your router cannot loop back to its public address.</p><div class="field"><input type="text" id="code" placeholder="Room code" maxlength="10"><button id="relayJoin">Join</button></div><button id="relayHost" class="primary">Create room</button></div>
-<div id="lanFields" hidden><div class="field"><input type="text" id="address" placeholder="192.168.1.20:47800"><button id="lanJoin">Join</button></div><button id="lanHost">Host on LAN</button><p class="note">Direct LAN requires a reachable host. Hosted rooms avoid player port forwarding.</p></div>
+<section id="party" hidden><article><h2>Squad connection</h2><label>Your name<input type="text" id="name" maxlength="20" placeholder="Player name"></label><div class="field"><button id="createRoom" class="primary">Create room</button></div>
+<p class="note">All rooms use the default hosted server. Your room appears in the public lobby browser.</p>
+<div class="setting"><h2>Public lobby browser</h2><button id="refreshLobbies">Refresh</button></div><p class="note">Choose a public room to join your squad.</p><div id="lobbies" aria-live="polite"></div>
 <div id="connection"></div><div class="field"><button id="leave">Leave party</button></div><div id="players"></div></article></section>
 <section id="history" hidden><article><div class="setting"><h2>Matches</h2><button class="primary" id="endMatch">End match</button></div><p id="hostNote"></p><div id="historyRows"></div></article></section>
 <section id="session" hidden><article><div class="setting"><h2>Current session</h2><button id="newSession">New session</button></div><div class="stats" id="sessionStats"></div></article></section>
+<section id="leaderboards" hidden><div class="section-intro"><h2>Squad records</h2><p>Personal bests from completed matches saved on this device, grouped by lobby size. Most chests is a player’s best single match.</p><p class="note">Up to 300 saved matches · lobbies above four players are excluded · solo streaks are unavailable</p></div><div class="boards" id="leaderboardRows" aria-live="polite"></div></section>
 <div class="setting"><p class="status" id="version"></p><button id="quit">Quit Chest Tracker</button></div>
-</main><script src="options.js"></script></body></html>
+</main><script src="match.js"></script><script src="sound.js"></script><script src="options.js"></script></body></html>
