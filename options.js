@@ -40,7 +40,7 @@ function render(data) {
   }
   $('opacityValue').textContent = `${s.opacity}%`;
   if (!$('statToggles').children.length) {
-    for (const [key, label] of [['chests','Chests'],['cpm','Chests per match'],['token','Token chance']]) {
+    for (const [key, label] of [['chests','CTG'],['cpm','CPM'],['token','Token chance']]) {
       const row = document.createElement('label'); row.className = 'setting';
       row.innerHTML = `<span>${label}</span><input type="checkbox" data-stat="${key}">`;
       row.lastChild.onchange = e => configure({ show:{ [key]:e.target.checked } });

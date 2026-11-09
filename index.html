@@ -328,9 +328,9 @@ function resetTeammateCredits() {
 const total = () => s.teamChests;
 // Add new stats here. `field` adds +/- buttons on hover.
 const STATS = [
-  { key:'chests',     label:'This game',       val:() => paired(s.cur.chests, s.cur.teamChests, true),
+  { key:'chests',     label:'CTG',       val:() => paired(s.cur.chests, s.cur.teamChests, true),
     icon:'<path d="M2 6.5h10V12H2z"/><path d="M2 6.5V5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 12 5v1.5"/><path d="M7 6.5v2"/>' },
-  { key:'cpm',        label:'Chests / match',    val:() => paired(s.matches ? (s.chests / s.matches).toFixed(2) : '–', s.matches ? (total() / s.matches).toFixed(2) : '–'),
+  { key:'cpm',        label:'CPM',    val:() => paired(s.matches ? (s.chests / s.matches).toFixed(2) : '–', s.matches ? (total() / s.matches).toFixed(2) : '–'),
     icon:'<path d="M3.5 12.5V2"/><path d="M3.5 2.5h7l-1.6 2.6 1.6 2.6h-7"/>' },
   { key:'token',      label:'Token chance', val:() => (100 * (1 - Math.pow(1 - 1 / s.odds, total()))).toFixed(4) + '%',
     icon:'<path d="M7 1.5l5 4.2L7 12.5 2 5.7z"/><path d="M2 5.7h10M5 5.7L7 12.5l2-6.8"/>' },

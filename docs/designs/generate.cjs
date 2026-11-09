@@ -15,7 +15,7 @@ function ledger(activeId='You',localLeads=false) {
     body+=crown+playerName+t(156,y,count,'num','end')+(active ? fire(180,y-12,true)+`<text x="212" y="${y}" text-anchor="end" class="num" style="fill:#c99465">${run}</text>` : '');
   });
   body+=line(114)+t(12,132,'CHESTS','small muted')+t(144,132,'YOU','small muted','end')+t(212,132,'TEAM','small muted','end');
-  [['This game',localLeads?'10':'8',localLeads?'25':'23'],['Chests / match',localLeads?'13.64':'13.45',localLeads?'38.91':'38.73']].forEach(([label,you,team],i)=>{
+  [['CTG',localLeads?'10':'8',localLeads?'25':'23'],['CPM',localLeads?'13.64':'13.45',localLeads?'38.91':'38.73']].forEach(([label,you,team],i)=>{
     const y=154+i*22;body+=t(12,y,label,'muted')+t(144,y,you,'num','end')+t(212,y,team,'num','end');
   });
   return body+line(185)+t(12,202,'Token chance','muted')+t(212,202,localLeads?'0.3108%':'0.3093%','num','end');

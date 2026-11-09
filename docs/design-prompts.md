@@ -7,7 +7,7 @@ The refined SVG reference is 224 × 214 pixels and shows:
 - Squad member name, chests this game, and current consecutive-opening streak.
 - One thin fire SVG beside the current streak holder; other rows have no streak marker. Before a streak starts, one grey idle flame appears beside you.
 - A gold crown SVG immediately to the left of the player with the most chests this game. Your name is gold while you hold the crown and white otherwise.
-- Personal/team chests this game and chests per match.
+- Personal/team chests this game (**CTG**) and chests per match (**CPM**).
 - One shared team token chance below the squad.
 
 Lifetime totals, session counts, hourly rates, completed-game/session-duration labels, and the “Team includes you” footer are omitted. The comparison board shows the selected layout in active and inactive streak states.

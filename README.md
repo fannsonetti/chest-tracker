@@ -4,7 +4,7 @@ A Windows Electron MiniHUD for tracking chest openings with your squad.
 
 ## Install
 
-Download `ChestTracker-Setup-1.1.4.exe` from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
+Download the Windows setup executable from [Releases](https://github.com/fannsonetti/chest-tracker/releases/latest) and run the installer. Installed copies check GitHub Releases on every launch, download newer versions, and restart to install while idle. If you have started tracking or joined a party during the download, installation waits until you quit. Portable copies do not automatically update; install the new setup once to switch.
 
 The current build is unsigned. Windows may show its usual unknown-publisher prompt.
 
