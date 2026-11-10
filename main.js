@@ -50,6 +50,9 @@ ipcMain.handle('getPopups', event => {
 ipcMain.on('popupResize', (event, size) => {
   if (!fromPopup(event) || !size || typeof size !== 'object') return;
   placePopup(size);
+  // The streak pill shows mid-game: let the mouse pass through it so hovering
+  // never pulls focus from the game. Recaps show after a game and stay clickable.
+  popupWin.setIgnoreMouseEvents(popupKind === 'streakBroken');
   if (!popupWin.isVisible()) { popupWin.setAlwaysOnTop(true, 'screen-saver'); popupWin.showInactive(); }
 });
 ipcMain.on('closePopup', event => { if (fromPopup(event)) popupWin.hide(); });
@@ -58,7 +61,8 @@ let updateStatus = { state:'checking', message:'Checking for updates…' };
 // The options window is built hidden shortly after boot and only hidden when
 // closed, so opening it is instant instead of a fresh page load each time.
 function buildOptions(tab = 'settings') {
-  optionsWin = new BrowserWindow({ width:900, height:760, minWidth:680, minHeight:560, show:false,
+  // Frameless: options.html draws its own MiniHUD-style top bar.
+  optionsWin = new BrowserWindow({ width:900, height:760, minWidth:680, minHeight:560, show:false, frame:false,
     title:'Chest Tracker · Options', backgroundColor:'#0c0d10', autoHideMenuBar:true,
     webPreferences:{ preload:path.join(__dirname, 'preload.js'), contextIsolation:true, nodeIntegration:false, spellcheck:false, autoplayPolicy:'no-user-gesture-required' } });
   optionsWin.loadFile(path.join(__dirname, 'options.html'), { query:{ tab } });
@@ -73,6 +77,16 @@ function openOptions(tab = 'settings') {
   if (w.webContents.isLoading()) w.webContents.once('did-finish-load', reveal); else reveal();
 }
 ipcMain.on('openOptions', (_, tab) => openOptions(tab));
+ipcMain.on('optionsWindow', (event, action) => {
+  const w = optionsWin;
+  if (!w || w.isDestroyed() || event.sender !== w.webContents) return;
+  if (action === 'minimize') w.minimize();
+  else if (action === 'maximize') w.isMaximized() ? w.unmaximize() : w.maximize();
+  else if (action === 'close') w.close();
+});
+// While a game is in progress the MiniHUD ignores the mouse entirely, so the
+// cursor passes through to the game instead of hovering the overlay.
+ipcMain.on('clickThrough', (event, on) => { if (event.sender === win?.webContents) win.setIgnoreMouseEvents(on === true); });
 // Updates install only while nothing is at stake: not in a party and no count
 // change for a few minutes.
 let lastCounts = null, lastCountChange = Date.now();

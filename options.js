@@ -11,7 +11,7 @@ const METRICS = [
 ];
 const remember = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const keep = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
-let current, capturing = null, keySignature = '', historySignature = '', lobbySignature = '', boardSignature = '';
+let current, capturing = null, keySignature = '', historySignature = '', lobbySignature = '', boardSignature = '', careerSignature = '';
 let boardMode = Number(remember('boardMode', 0)) || 0, boardMetric = remember('boardMetric', 'points');
 
 function tab(name) {
@@ -26,6 +26,20 @@ function tab(name) {
 for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => tab(b.dataset.tab);
 tab(new URLSearchParams(location.search).get('tab'));
 window.api.onOptionsTab(tab);
+
+// ---------- Top bar ----------
+$('tbMin').onclick = () => window.api.optionsWindow?.('minimize');
+$('tbMax').onclick = () => window.api.optionsWindow?.('maximize');
+$('tbClose').onclick = () => window.api.optionsWindow?.('close');
+function renderTopbar() {
+  const s = current?.s;
+  if (!s?.cur) return;
+  $('tbGame').textContent = 'Game ' + (s.cur.ended ? s.matches : s.matches + 1);
+  const seconds = Math.max(0, Math.floor(((s.cur.ended || Date.now()) - s.cur.start) / 1000));
+  $('tbClock').textContent = String(Math.floor(seconds / 60)).padStart(2,'0') + ':' + String(seconds % 60).padStart(2,'0') + (s.cur.ended ? ' · ended' : '');
+  $('tbClock').classList.toggle('ended', !!s.cur.ended);
+}
+setInterval(renderTopbar, 1000);
 
 const configure = patch => window.api.configure(patch);
 for (const id of ['compact','opacity','recaps','streakPopups','sound','odds','name']) {
@@ -130,9 +144,12 @@ function render(data) {
     $('historyRows').innerHTML = s.history.length ? '<div class="group"><table class="table history"><tr><th>Match</th><th>Players</th><th>You</th><th>Team</th><th>Recap</th></tr>' +
       s.history.slice().reverse().map(m => `<tr><td class="num-strong">#${m.n}<div class="dimmed">${esc(when(m.end))}</div></td><td class="dimmed">${(m.recap || []).length || 1}</td><td class="num-strong">${m.chests}</td><td>${m.teamChests}</td><td><details><summary>View full recap</summary>${recapDetails({ ...m, start:m.timelineStart || m.start, teamChests:m.recapTeamTotal ?? m.teamChests })}</details></td></tr>`).join('') + '</table></div>'
       : '<div class="group"><div class="empty"><b>No completed matches yet</b>End a match with F8 and it shows up here.</div></div>';
-    renderCareer(s.history, s.id);
   }
+  // Lifetime counts change with every chest, so Your stats has its own signature.
+  const career = JSON.stringify([history, s.chests, s.teamChests]);
+  if (career !== careerSignature) { careerSignature = career; renderCareer(s.history, s.id, s); }
   renderLeaderboards(s.history, s.id);
+  renderTopbar();
   renderUpdate(data.update);
   if (data.version) $('version').textContent = `Version ${data.version}`;
 }
@@ -202,14 +219,18 @@ function renderLeaderboards(history, selfId) {
 }
 
 // ---------- Your stats ----------
-function renderCareer(history, selfId) {
+function renderCareer(history, selfId, s) {
   const c = careerStats(history, selfId);
+  const stat = (label, value, hint = '', cls = '') => `<div class="stat ${cls}"><span>${label}</span><b>${value}</b>${hint ? `<small>${hint}</small>` : ''}</div>`;
+  // Lifetime counts include the game in progress and everything since the last reset.
+  const lifetime = '<h2>Lifetime</h2><div class="summary">' +
+    stat('Lifetime chests', s.chests || 0, 'every chest you opened', 'lead') +
+    stat('Lifetime team chests', s.teamChests || 0, 'yours plus your teammates’', 'lead') + '</div>';
   if (!c.matches) {
-    $('careerRows').innerHTML = '<div class="group"><div class="empty"><b>No matches yet</b>Your totals, bests and recent form appear after your first completed match.</div></div>';
+    $('careerRows').innerHTML = lifetime + '<h2>Matches</h2><div class="group"><div class="empty"><b>No matches yet</b>Your totals, bests and recent form appear after your first completed match.</div></div>';
     return;
   }
-  const stat = (label, value, hint = '', cls = '') => `<div class="stat ${cls}"><span>${label}</span><b>${value}</b>${hint ? `<small>${hint}</small>` : ''}</div>`;
-  let html = '<div class="summary">' +
+  let html = lifetime + '<h2>Saved matches</h2><div class="summary">' +
     stat('Chests opened', c.chests, `across ${c.matches} match${c.matches === 1 ? '' : 'es'}`, 'lead') +
     stat('Best match', c.best) + stat('Average', c.avg, 'per match') +
     stat('Best streak', c.streak || '–', 'squad matches') + stat('Per minute', c.perMin || '–') +

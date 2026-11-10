@@ -255,6 +255,7 @@ const KEYS = [
   { a:'chestUp',   label:'Chest +' },
   { a:'chestDown', label:'Chest −' },
   { a:'match',     label:'End / new game' },
+  { a:'options',   label:'Open options' },
   { a:'toggle',    label:'Hide / show' },
 ];
 const DEF = {
@@ -265,7 +266,7 @@ const DEF = {
   cpm:{ matches:0, chests:0, teamMatches:0, team:0 },
   history:[], name:'', id:'', v:2, compact:true, opacity:88,
   countMode:'both', recaps:true, streakPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
-  keys:{ chestUp:'numadd', chestDown:'numsub', match:'F8', toggle:'F9' },
+  keys:{ chestUp:'numadd', chestDown:'numsub', match:'F8', toggle:'F9', options:'F10' },
 };
 let s;
 try {
@@ -610,6 +611,10 @@ function render() {
   panel.classList.toggle('compact', compact);
   panel.style.width = w + 'px';
   applyOpacity();
+  // Mid-game the HUD is click-through so the cursor never hovers it and pulls
+  // focus from the game. It takes the mouse again once the game ends.
+  const through = !s.cur.ended;
+  if (through !== clickThrough) { clickThrough = through; window.api.clickThrough?.(through); }
   save();
   pushNet();
   window.api.snapshot?.({ s, net, session:sessionStats(), keys:KEYS, keyOk });
@@ -624,7 +629,7 @@ function applyOpacity() {
 }
 
 // ---------- Actions ----------
-let lastNet = '';
+let lastNet = '', clickThrough = null;
 function pushNet() {
   const p = { id:s.id, name:s.name.trim() || 'Player', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start, streak:s.streak, bestStreak:s.bestStreak };
   const j = JSON.stringify(p);
@@ -774,6 +779,7 @@ window.api.onAction(a => {
   if (a === 'chestUp') bump('chests', 1);
   else if (a === 'chestDown') bump('chests', -1);
   else if (a === 'match') endMatch();
+  else if (a === 'options') window.api.openOptions?.('settings');
   else if (a === 'toggle') { s.hidden = !s.hidden; render(); }
 });
 window.api.onNet(d => {

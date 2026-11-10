@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('api', {
   netJoin: (addr) => ipcRenderer.send('netJoin', addr),
   netLeave: () => ipcRenderer.send('netLeave'),
   openOptions: tab => ipcRenderer.send('openOptions', tab),
+  optionsWindow: action => ipcRenderer.send('optionsWindow', action),
+  clickThrough: on => ipcRenderer.send('clickThrough', on === true),
   showPopup: item => ipcRenderer.send('showPopup', item),
   getPopups: () => ipcRenderer.invoke('getPopups'),
   onPopup: cb => ipcRenderer.on('popup', (_, item) => cb(item)),
