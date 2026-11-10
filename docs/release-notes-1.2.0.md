@@ -5,6 +5,9 @@
 - Holding a hotkey counts once. Each chest needs its own press.
 - The team chest keys and +/- buttons are gone. Team chests come only from your teammates' own counts; the HUD's +/- buttons always change your own chests.
 - CPM (chests per match) and the averages on the leaderboards and Your stats skip matches where you opened fewer than 5 chests. Team CPM uses the same rule on the team total. Your current CPM is recalculated from your saved matches.
+- While a game is in progress the MiniHUD and the streak popup ignore the mouse, so hovering them never pulls focus from your game. The HUD is clickable again once the game ends. A new Open options hotkey (F10) opens settings mid-game.
+- The options window has its own top bar styled like the MiniHUD header, with the game number, clock and small window controls.
+- Your stats now opens with your lifetime chests and lifetime team chests.
 
 Deployment: party points need the updated relay (this version's `match.js`, `proof.js` and `relay/server.js`) running with its signing key. See `relay/README.md`.
 
