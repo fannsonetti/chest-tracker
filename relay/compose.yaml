@@ -6,6 +6,11 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:47801:47801"
+    # Private key that signs match results; the app holds the public key.
+    environment:
+      RELAY_SIGNING_KEY_FILE: /run/secrets/signing-key.pem
+    volumes:
+      - ./signing-key.pem:/run/secrets/signing-key.pem:ro
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

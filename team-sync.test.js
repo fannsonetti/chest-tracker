@@ -37,18 +37,19 @@ test('alone offline or in a hosted lobby has no HUD streak or saved solo streak'
   assert.equal(t.run('s.history[0].recap[0].bestStreak'),0);
 });
 
-test('subtraction is limited to the current match and never touches completed counts', () => {
+test('subtraction is limited to the current match and team chests cannot be added by hand', () => {
   const t = tracker();
   t.run("bump('chests', 5); bump('teamChests', 3); finishMatch(); bump('chests', -1)");
-  assert.deepEqual(t.counts(),[5,8,5,8]);
+  assert.deepEqual(t.counts(),[5,5,5,5]);
   t.run("newGame(); bump('chests', -1); bump('teamChests', -1)");
-  assert.deepEqual(t.counts(),[5,8,0,0]);
-  t.run("bump('chests', 2); bump('teamChests', 4); bump('chests', -99); bump('teamChests', -99)");
-  assert.deepEqual(t.counts(),[5,8,0,0]);
+  assert.deepEqual(t.counts(),[5,5,0,0]);
+  t.run("bump('chests', 2); bump('teamChests', 4); bump('chests', -99)");
+  assert.deepEqual(t.counts(),[5,5,0,0]);
   assert.equal(t.run('s.history[0].chests'),5);
-  assert.equal(t.run('s.history[0].teamChests'),8);
+  assert.equal(t.run('s.history[0].teamChests'),5);
   assert.equal(t.run('session.chests'),5);
-  assert.equal(t.run('session.teamChests'),8);
+  assert.equal(t.run('session.teamChests'),5);
+  assert.equal(t.run("KEYS.some(k => k.a.startsWith('team')) || 'teamUp' in s.keys"),false);
 });
 
 test('valid mouse and hotkey count changes play a click; rejected subtraction and muted changes do not', () => {
@@ -60,14 +61,13 @@ test('valid mouse and hotkey count changes play a click; rejected subtraction an
   assert.equal(t.run('window.clicks'),2);
 });
 
-test('teammate corrections after a manual correction cannot subtract completed match totals', () => {
+test('teammate corrections cannot subtract completed match totals', () => {
   const t = tracker();
-  t.run("bump('teamChests', 7); finishMatch()");
-  t.roster([peer(0)]); t.roster([peer(3)]);
-  t.run("bump('teamChests', -3)");
-  t.roster([peer(0)]);
+  t.roster([peer(0)]); t.roster([peer(7)]);
+  t.run('finishMatch(); startGame(200)');
+  t.roster([peer(0,200)]); t.roster([peer(3,200)]); t.roster([peer(0,200)]);
   assert.deepEqual(t.counts(),[0,7,0,0]);
-  t.roster([peer(1)]);
+  t.roster([peer(1,200)]);
   assert.deepEqual(t.counts(),[0,8,0,1]);
 });
 
@@ -86,15 +86,15 @@ test('match summary is sent to the popup after freezing the match, without chang
 });
 test('joining a teammate with 120 chests keeps my 70 and counts only subsequent openings', () => {
   const t = tracker();
-  t.run("bump('teamChests', 70)");
+  t.run("bump('chests', 70)");
   t.roster([peer(120)]);
-  assert.deepEqual(t.counts(), [0, 70, 0, 70]);
+  assert.deepEqual(t.counts(), [70, 70, 70, 70]);
   t.roster([{ ...peer(121), teamChests: 999 }]);
-  assert.deepEqual(t.counts(), [0, 71, 0, 71]);
+  assert.deepEqual(t.counts(), [70, 71, 70, 71]);
   t.roster([{ ...peer(121), teamChests: 1000 }]);
-  assert.deepEqual(t.counts(), [0, 71, 0, 71]);
+  assert.deepEqual(t.counts(), [70, 71, 70, 71]);
   t.roster([peer(120)]);
-  assert.deepEqual(t.counts(), [0, 70, 0, 70]);
+  assert.deepEqual(t.counts(), [70, 70, 70, 70]);
 });
 test('reconnecting excludes openings while away', () => {
   const t = tracker();

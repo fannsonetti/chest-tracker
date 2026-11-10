@@ -29,6 +29,17 @@ If Docker is unavailable, use Node.js 22.12+ and run `npm ci --omit=dev --ignore
 
 Create room in the Party tab, then have friends choose Join in the public lobby browser. Rooms are public and update as players join, leave, or close rooms. Deploy the current server code for lobby browsing and full recap timelines; older clients may still join using room codes.
 
-The service sends immutable match-end snapshots to everyone before resetting the room. The host is assigned by the server, rather than by a client-supplied flag. Guests cannot end a match. Counts are self-reported; this is a squad tracker rather than an anti-cheat system. Corrected openings rebuild the sequence used for streaks, and stale states from the prior match are ignored.
+The service sends immutable match-end snapshots to everyone before resetting the room. The host is assigned by the server, rather than by a client-supplied flag. Guests cannot end a match. Counts are self-reported, but leaderboard points are scored by the relay from its own receipt log and each match result is signed (see below), so points cannot be edited into saved history. Corrected openings rebuild the sequence used for streaks, and stale states from the prior match are ignored.
 
 For local testing: `npm test` includes a real WebSocket integration test with two clients, permissions, synchronized recaps, streak breaks, resets, and room cleanup.
+
+## Match signing key
+
+The relay signs every match result with an Ed25519 private key. The app ships the matching public key in `proof.js` and only gives leaderboard points for results whose signature checks out. Without a key the relay signs with a throwaway one, and party points from it do not count.
+
+The private key is `relay/signing-key.pem`. It is gitignored and must never be committed or shipped with the app. To deploy it:
+
+- systemd service on app-01: copy the file to the server (for example `~/.config/chest-tracker-relay/signing-key.pem`, mode 600) and add `Environment=RELAY_SIGNING_KEY_FILE=/home/<user>/.config/chest-tracker-relay/signing-key.pem` to the service override, then restart it. Deploy `proof.js` next to `match.js`.
+- Docker: put the file at `relay/signing-key.pem`; `compose.yaml` mounts it read-only.
+
+To rotate the key, generate a new pair, put the private key on the server and the public key in `RELAY_PUBLIC_KEY` in `proof.js`, then release the app. Results signed with the old key stop counting.

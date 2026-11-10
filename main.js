@@ -130,13 +130,16 @@ ipcMain.on('resize', (_, size) => {
 ipcMain.on('quit', () => app.quit());
 
 // ---------- Global hotkeys (work while the game is focused) ----------
+// Holding a key counts once: auto-repeats are dropped, so every chest needs
+// its own press.
 let keys = {};
+const holds = new (require('./match').HoldFilter)();
 function registerKeys() {
   globalShortcut.unregisterAll();
   const result = {};
   for (const [action, accel] of Object.entries(keys)) {
     if (!accel) { result[action] = true; continue; }
-    try { result[action] = globalShortcut.register(accel, () => toUI('action', action)); }
+    try { result[action] = globalShortcut.register(accel, () => holds.press(action, () => toUI('action', action))); }
     catch (e) { result[action] = false; }
   }
   return result;
@@ -163,6 +166,9 @@ const makeHosted = () => new (require('./hosted-connection').HostedConnection)({
   onMatchEnd:data => toUI('matchEnd', data),
   onMatchStart:data => toUI('matchStart', data)
 });
+// Leaderboard points only count relay-signed results; returns each signed
+// result, or null where the signature does not check out.
+ipcMain.handle('verifyProofs', (_, proofs) => Array.isArray(proofs) ? proofs.slice(0, 1000).map(p => require('./proof').verifyResult(p)) : []);
 ipcMain.handle('getLobbies', () => { hosted.browse(); return lobbySnapshot; });
 ipcMain.on('browseLobbies', () => hosted.browse());
 ipcMain.on('netState', (_, p) => hosted.state(p));

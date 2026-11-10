@@ -131,6 +131,65 @@ test('a takeover keeps the other challengers hidden counts', () => {
   s.observe('b',2); assert.equal(s.current('b'),2, 'b needed only one more'); assert.equal(s.current('a'),0);
 });
 
+test('points: 10 per chest, +10% per streak level, times lobby size up to 4x; corrections remove them', () => {
+  const { openingPoints } = require('./match');
+  assert.equal(openingPoints(0,1),10); assert.equal(openingPoints(1,2),20); assert.equal(openingPoints(3,3),39); assert.equal(openingPoints(0,9),40);
+  const solo = new OpeningStreaks();
+  solo.setPlayers(1); solo.observe('a',0); solo.observe('a',6);
+  assert.equal(solo.score('a'),60, 'solo has no streak bonus');
+  const duo = new OpeningStreaks();
+  duo.setPlayers(2); duo.observe('a',0); duo.observe('b',0);
+  duo.observe('a',3);   // 20, then streak 2 (24), streak 3 (26)
+  duo.observe('b',1);   // 20, no streak
+  assert.equal(duo.score('a'),70); assert.equal(duo.score('b'),20);
+  duo.observe('a',2);   // correction removes the streak-3 opening
+  assert.equal(duo.score('a'),44);
+  duo.setPlayers(4); duo.observe('b',2); // 40 at squad size, b's second opening takes the streak: (10+2)*4
+  assert.equal(duo.score('b'),20+48);
+  assert.equal(duo.recap([{id:'a',name:'a',chests:2},{id:'b',name:'b',chests:2}]).find(p=>p.id==='b').points,68);
+});
+
+test('a held hotkey counts once; separate presses each count', () => {
+  const { HoldFilter } = require('./match');
+  let t = 0, timers = [], fired = 0;
+  const f = new HoldFilter({ now:() => t, schedule:(fn, ms) => { const timer = { fn, at:t + ms }; timers.push(timer); return timer; }, cancel:timer => { timers = timers.filter(x => x !== timer); } });
+  const advance = to => { t = to; for (const timer of timers.filter(x => x.at <= t)) { timers = timers.filter(x => x !== timer); timer.fn(); } };
+  const press = at => { advance(at); f.press('chestUp', () => fired++); };
+  // Hold: first press, first auto-repeat after 500ms, then a repeat every 33ms.
+  press(10000); for (let at = 10500; at < 12000; at += 33) press(at); advance(13000);
+  assert.equal(fired,1);
+  // Taps 300ms apart each count once the repeat window passes.
+  press(20000); press(20300); press(20600); advance(21000);
+  assert.equal(fired,4);
+  // Another key is tracked on its own.
+  f.press('chestDown', () => fired += 10); assert.equal(fired,14);
+});
+
+test('points leaderboard only counts relay-verified party results once, plus solo chests', () => {
+  const p = (id, chests) => ({ id, name:id, chests, bestStreak:0 });
+  const signed = { id:'m1', players:[{ id:'me', points:128 }, { id:'b', points:20 }] };
+  const history = [
+    { recap:[p('me',8),p('b',6)], proof:{ data:'ok', sig:'s1' } },
+    { recap:[p('me',8),p('b',6)], proof:{ data:'ok', sig:'s1' } },          // the same match saved twice
+    { recap:[{ ...p('me',99), points:99999 },p('b',1)] },                     // unsigned party match
+    { recap:[{ ...p('me',4), points:99999 }] }                                // solo: chests x 10, stored points ignored
+  ];
+  const verified = m => m.proof?.sig === 's1' ? signed : null;
+  const all = matchLeaderboards(history, verified)[4];
+  assert.equal(all.size,0); assert.equal(all.matches,4);
+  assert.deepEqual(all.points.map(r=>[r.id,r.points]),[['me',168],['b',20]]);
+  assert.deepEqual(matchLeaderboards(history)[1].points,[]);
+});
+
+test('averages skip matches under 5 chests', () => {
+  const { careerStats } = require('./match');
+  const history = [10, 4, 20, 0].map((chests, i) => ({ n:i+1, start:0, end:60000, chests, teamChests:chests, recap:[{ id:'me', name:'me', chests }] }));
+  assert.equal(matchLeaderboards(history)[0].avg[0].avg,15);
+  assert.equal(matchLeaderboards(history)[0].played[0].matches,4);
+  const c = careerStats(history,'me');
+  assert.equal(c.avg,15); assert.equal(c.matches,4); assert.equal(c.chests,34);
+});
+
 test('leaderboards add matches and averages; career stats summarize your own matches', () => {
   const { careerStats } = require('./match');
   const player = (id, chests, bestStreak) => ({id,name:id,chests,bestStreak});

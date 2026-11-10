@@ -2,8 +2,9 @@ const http = require('node:http');
 const { randomBytes, randomUUID } = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 const { OpeningStreaks } = require('../match');
+const { signResult, loadSigningKey } = require('../proof');
 
-function createRelay() {
+function createRelay({ signingKey = loadSigningKey() } = {}) {
   const rooms = new Map();
   const server = http.createServer((req, res) => {
     res.writeHead(req.url === '/health' ? 200 : 404, { 'Content-Type':'application/json' });
@@ -28,7 +29,7 @@ function createRelay() {
       matchStart:Math.max(0, Number(p.matchStart) || 0), streak:count(p.streak), bestStreak:count(p.bestStreak) };
   }
   function broadcast(room) {
-    room.streaks.setCompetitive(room.members.size > 1);
+    room.streaks.setPlayers(room.members.size);
     const players = room.streaks.live([...room.members.values()]);
     for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, ended:!!room.ended, players });
   }
@@ -101,7 +102,7 @@ function createRelay() {
         // Match timestamps need their full precision (not a bounded count).
         p.matchStart = Math.max(0, Number(m.p?.matchStart) || 0);
         if (c.room.lastEnd && p.matchStart < c.room.lastEnd) return;
-        c.room.streaks.setCompetitive(c.room.members.size > 1);
+        c.room.streaks.setPlayers(c.room.members.size);
         c.room.streaks.observe(p.id, p.chests);
         c.room.members.set(c, p); broadcast(c.room);
         if (old.name !== p.name) broadcastLobbies();
@@ -110,8 +111,12 @@ function createRelay() {
         if (room.host !== c) return fail(c, 'Only the host can end a match');
         if (room.ended) return;
         room.lastEnd = now; room.ended = true;
-        const message = { t:'matchEnd', id:randomUUID(), start:room.start, end:now,
-          timeline:room.streaks.timeline(), players:room.streaks.recap([...room.members.values()]) };
+        const id = randomUUID(), players = room.streaks.recap([...room.members.values()]);
+        // Points are scored here from the relay's own receipt log and signed,
+        // so the app can trust them on its leaderboards.
+        const proof = signResult({ v:1, id, start:room.start, end:now, size:room.members.size,
+          players:players.map(({ id, name, chests, bestStreak, points }) => ({ id, name, chests, bestStreak, points })) }, signingKey);
+        const message = { t:'matchEnd', id, start:room.start, end:now, timeline:room.streaks.timeline(), players, proof };
         for (const peer of room.members.keys()) send(peer, message);
         // The finished match stays frozen until the host starts a new one or
         // anyone opens a chest; rooms with older clients move on immediately.

@@ -254,8 +254,6 @@ window.api = window.api || { onAction(){}, resize(){}, quit(){}, setKeys: async 
 const KEYS = [
   { a:'chestUp',   label:'Chest +' },
   { a:'chestDown', label:'Chest −' },
-  { a:'teamUp',    label:'Team chest +' },
-  { a:'teamDown',  label:'Team chest −' },
   { a:'match',     label:'End / new game' },
   { a:'toggle',    label:'Hide / show' },
 ];
@@ -263,9 +261,11 @@ const DEF = {
   chests:0, teamChests:0, matches:0, odds:137500,
   show:{ chests:true, teamChests:true, cpm:true, token:true }, hidden:false,
   cur:{ chests:0, teamChests:0, start:Date.now() },
+  // Chests per match: only matches with MIN_CPM_CHESTS or more count.
+  cpm:{ matches:0, chests:0, teamMatches:0, team:0 },
   history:[], name:'', id:'', v:2, compact:true, opacity:88,
   countMode:'both', recaps:true, streakPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
-  keys:{ chestUp:'numadd', chestDown:'numsub', teamUp:'Ctrl+numadd', teamDown:'Ctrl+numsub', match:'F8', toggle:'F9' },
+  keys:{ chestUp:'numadd', chestDown:'numsub', match:'F8', toggle:'F9' },
 };
 let s;
 try {
@@ -274,7 +274,13 @@ try {
   if (!raw.minimalUI) { s.compact = true; s.minimalUI = 1; }
 
   for (const k of ['show', 'cur', 'keys']) s[k] = Object.assign({}, DEF[k], raw[k]);
+  // Team chests come only from teammates' own counts; the manual keys are gone.
+  delete s.keys.teamUp; delete s.keys.teamDown;
   if (!Array.isArray(s.history)) s.history = [];
+  if (!raw.cpm) {
+    s.cpm = { matches:0, chests:0, teamMatches:0, team:0 };
+    for (const m of s.history) countCpm(s.cpm, m.chests, m.recapTeamTotal ?? m.teamChests);
+  }
   // v2: team chests include your own chests. Fold old separate counts in once.
   if (!(raw.v >= 2) && Object.keys(raw).length) {
     s.teamChests += s.chests;
@@ -285,6 +291,11 @@ try {
 } catch (e) { s = JSON.parse(JSON.stringify(DEF)); }
 if (!s.id) s.id = Math.random().toString(36).slice(2, 10);
 const save = () => { try { localStorage.setItem('s', JSON.stringify(s)); } catch (e) {} };
+function countCpm(cpm, chests, team) {
+  chests = Number(chests) || 0; team = Number(team) || 0;
+  if (chests >= MIN_CPM_CHESTS) { cpm.matches++; cpm.chests += chests; }
+  if (team >= MIN_CPM_CHESTS) { cpm.teamMatches++; cpm.team += team; }
+}
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -344,23 +355,23 @@ const total = () => s.teamChests;
 const STATS = [
   { key:'chests',     label:'CTG',       val:() => paired(s.cur.chests, s.cur.teamChests, true),
     icon:'<path d="M2 6.5h10V12H2z"/><path d="M2 6.5V5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 12 5v1.5"/><path d="M7 6.5v2"/>' },
-  { key:'cpm',        label:'CPM',    val:() => paired(s.matches ? (s.chests / s.matches).toFixed(2) : '–', s.matches ? (total() / s.matches).toFixed(2) : '–'),
+  { key:'cpm',        label:'CPM',    val:() => paired(s.cpm.matches ? (s.cpm.chests / s.cpm.matches).toFixed(2) : '–', s.cpm.teamMatches ? (s.cpm.team / s.cpm.teamMatches).toFixed(2) : '–'),
     icon:'<path d="M3.5 12.5V2"/><path d="M3.5 2.5h7l-1.6 2.6 1.6 2.6h-7"/>' },
   { key:'token',      label:'Token chance', val:() => (100 * (1 - Math.pow(1 - 1 / s.odds, total()))).toFixed(4) + '%',
     icon:'<path d="M7 1.5l5 4.2L7 12.5 2 5.7z"/><path d="M2 5.7h10M5 5.7L7 12.5l2-6.8"/>' },
 ];
 const COMPACT_W = 224, FULL_W = 248;
 
+// +/- always change your own chests; team chests only come from teammates.
 function paired(personal, team, controls = false) {
-  const canSubtract = field => (field === 'chests' ? s.cur.chests : s.cur.teamChests - s.cur.chests) > 0;
-  const value = (n, field, label) => '<span class="pair" title="' + label + '">' +
-    (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="-1"' + (canSubtract(field) ? '' : ' disabled') + ' aria-label="Remove one ' + label.toLowerCase() + '">' + ICON_MINUS + '</button></span>' : '') +
+  const value = (n, label, ctl = controls) => '<span class="pair" title="' + label + '">' +
+    (ctl ? '<span class="ctl"><button data-f="chests" data-d="-1"' + (s.cur.chests > 0 ? '' : ' disabled') + ' aria-label="Remove one of your chests">' + ICON_MINUS + '</button></span>' : '') +
     '<span class="val">' + esc(n) + '</span>' +
-    (controls ? '<span class="ctl"><button data-f="' + field + '" data-d="1" aria-label="Add one ' + label.toLowerCase() + '">' + ICON_PLUS + '</button></span>' : '') + '</span>';
-  if (s.countMode === 'personal') return value(personal, 'chests', 'Personal chests');
-  if (s.countMode === 'team' || s.countMode === 'merged') return value(team, 'teamChests', 'Team total (includes you)');
+    (ctl ? '<span class="ctl"><button data-f="chests" data-d="1" aria-label="Add one of your chests">' + ICON_PLUS + '</button></span>' : '') + '</span>';
+  if (s.countMode === 'personal') return value(personal, 'Personal chests');
+  if (s.countMode === 'team' || s.countMode === 'merged') return value(team, 'Team total (includes you)');
   return '<span class="pair" aria-label="Personal ' + esc(personal) + ', team ' + esc(team) + '">' +
-    value(personal, 'chests', 'Personal chests') + '<span class="slash">/</span>' + value(team, 'teamChests', 'Team chests') + '</span>';
+    value(personal, 'Personal chests') + '<span class="slash">/</span>' + value(team, 'Team chests', false) + '</span>';
 }
 
 const CROWN = '<svg class="crown" viewBox="0 0 16 16" role="img" aria-label="Match leader"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
@@ -633,7 +644,7 @@ let pendingOpen = null;   // an opening waiting for the party's next game to sta
 const soloOpenings = new OpeningStreaks();
 soloOpenings.observe(s.id, s.cur.chests);
 function bump(f, d) {
-  if (!['chests','teamChests'].includes(f) || !Number.isFinite(d)) return;
+  if (f !== 'chests' || !Number.isFinite(d)) return;
   if (s.cur.ended) {
     // Opening a chest after a game ends starts the next one (for the whole party).
     const party = net.status === 'host' || net.status === 'client';
@@ -649,8 +660,7 @@ function bump(f, d) {
     }
     startGame(Date.now());
   }
-  const available = f === 'chests' ? s.cur.chests : s.cur.teamChests - s.cur.chests;
-  d = Math.max(-available, Math.trunc(d));
+  d = Math.max(-s.cur.chests, Math.trunc(d));
   if (!d) return;
   const beforeChests = s.chests, beforeTeam = s.teamChests;
   bumpIn(s, f, d);
@@ -671,7 +681,8 @@ function finishMatch(event) {
   if (event && event.id === lastMatchId) return;
   if (event) lastMatchId = event.id;
   if (s.cur.ended) return;
-  const players = event?.players || rankedPlayers();
+  // Solo points are always chests x POINTS_PER_CHEST; party points come from the relay.
+  const players = event?.players || rankedPlayers().map(p => ({ ...p, points:(p.chests || 0) * POINTS_PER_CHEST }));
   const result = recapPlayers(players);
   const own = result.find(p => p.id === s.id);
   s.streak = own?.bestStreak || 0;
@@ -682,7 +693,10 @@ function finishMatch(event) {
   s.matches += 1;
   const party = (net.status === 'host' || net.status === 'client')
     ? net.players.filter(p => p.id !== s.id).map(p => ({ name:p.name, chests:p.chests, teamChests:p.teamChests })) : [];
-  s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result, recapTeamTotal:event ? result.reduce((n,p)=>n+p.chests,0) : s.cur.teamChests, timeline:event?.timeline || soloOpenings.timeline(), timelineStart:event?.start || s.cur.start });
+  const recapTeamTotal = event ? result.reduce((n,p)=>n+p.chests,0) : s.cur.teamChests;
+  countCpm(s.cpm, s.cur.chests, recapTeamTotal);
+  s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result, recapTeamTotal, timeline:event?.timeline || soloOpenings.timeline(), timelineStart:event?.start || s.cur.start,
+    ...(event?.proof ? { proof:{ data:String(event.proof.data), sig:String(event.proof.sig) } } : {}) });
   if (s.history.length > 300) s.history.splice(0, s.history.length - 300);
   // Ending freezes the game; the next one starts only from New game.
   s.cur.ended = s.history.at(-1).end;
@@ -752,15 +766,13 @@ $('odds').onchange = e => { s.odds = Math.max(1, +e.target.value || DEF.odds); r
 $('matches').onchange = e => { s.matches = Math.max(0, Math.floor(+e.target.value) || 0); render(); };
 $('reset').onclick = () => {
   if (!confirm('Reset chest and match counts to zero? Match history is kept.')) return;
-  s.chests = s.teamChests = s.matches = 0; s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); resetTeammateCredits(); session = newSession(); render();
+  s.chests = s.teamChests = s.matches = 0; s.cpm = { matches:0, chests:0, teamMatches:0, team:0 }; s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); resetTeammateCredits(); session = newSession(); render();
 };
 $('quit').onclick = () => window.api.quit();
 
 window.api.onAction(a => {
   if (a === 'chestUp') bump('chests', 1);
   else if (a === 'chestDown') bump('chests', -1);
-  else if (a === 'teamUp') bump('teamChests', 1);
-  else if (a === 'teamDown') bump('teamChests', -1);
   else if (a === 'match') endMatch();
   else if (a === 'toggle') { s.hidden = !s.hidden; render(); }
 });
@@ -801,7 +813,7 @@ window.api.onCommand?.(command => {
   else if (command === 'newGame') newGame();
   else if (command === 'newSession') { session = newSession(); render(); }
   else if (command === 'reset' && net.status === 'off') {
-    s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0;
+    s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0; s.cpm = { matches:0, chests:0, teamMatches:0, team:0 };
     s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); session = newSession(); render();
   }
 });

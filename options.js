@@ -1,8 +1,9 @@
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const TABS = ['settings','party','history','session','leaderboards','career'];
-const MODES = ['Solo','Duo','Trio','Squads'];
+const MODES = ['Solo','Duo','Trio','Squads','All'];
 const METRICS = [
+  { key:'points', label:'Points', short:'Points', column:'points', sub:'total points' },
   { key:'chests', label:'Most chests', short:'Best', column:'chests', sub:'best match' },
   { key:'streaks', label:'Best streak', short:'Streak', column:'bestStreak', sub:'in a row' },
   { key:'avg', label:'Average', short:'Avg', column:'avg', sub:'per match' },
@@ -11,7 +12,7 @@ const METRICS = [
 const remember = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const keep = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 let current, capturing = null, keySignature = '', historySignature = '', lobbySignature = '', boardSignature = '';
-let boardMode = Number(remember('boardMode', 0)) || 0, boardMetric = remember('boardMetric', 'chests');
+let boardMode = Number(remember('boardMode', 0)) || 0, boardMetric = remember('boardMetric', 'points');
 
 function tab(name) {
   if (!TABS.includes(name)) name = 'settings';
@@ -89,7 +90,7 @@ function render(data) {
   }
   $('opacityValue').textContent = `${s.opacity}%`;
   if (!$('statToggles').children.length) {
-    for (const [key, label, hint] of [['chests','CTG','Chests this game, personal and team.'],['cpm','CPM','Chests per match.'],['token','Token chance','Shared chance of a token, from the odds below.']]) {
+    for (const [key, label, hint] of [['chests','CTG','Chests this game, personal and team.'],['cpm','CPM','Chests per match. Matches under 5 chests are skipped.'],['token','Token chance','Shared chance of a token, from the odds below.']]) {
       const row = document.createElement('label'); row.className = 'row';
       row.innerHTML = `<span>Show ${esc(label)}<small>${esc(hint)}</small></span><input type="checkbox" class="switch" data-stat="${key}">`;
       row.lastChild.onchange = e => configure({ show:{ [key]:e.target.checked } });
@@ -148,8 +149,22 @@ function cancelCapture() {
 
 // ---------- Leaderboards ----------
 const CROWN = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
+// Points only count relay-signed results. Signatures are checked in the main
+// process and cached by signature and signed data.
+const proofs = new Map();
+let verifying = false;
+const proofKey = p => p && typeof p.sig === 'string' && typeof p.data === 'string' ? p.sig + '\n' + p.data : null;
+function verifiedResults(history, selfId) {
+  const missing = history.map(m => m.proof).filter(p => proofKey(p) && !proofs.has(proofKey(p)));
+  if (missing.length && !verifying && window.api.verifyProofs) {
+    verifying = true;
+    window.api.verifyProofs(missing).then(results => missing.forEach((p, i) => proofs.set(proofKey(p), results?.[i] || null)))
+      .catch(() => {}).finally(() => { verifying = false; renderLeaderboards(history, selfId); });
+  }
+  return match => proofs.get(proofKey(match.proof)) || null;
+}
 function renderLeaderboards(history, selfId) {
-  const boards = matchLeaderboards(history);
+  const boards = matchLeaderboards(history, verifiedResults(history, selfId));
   // Default to the busiest squad size the first time.
   if (!remember('boardMode', null) && boards.some(b => b.matches)) boardMode = boards.reduce((best, b, i) => b.matches > boards[best].matches ? i : best, 0);
   const board = boards[boardMode] || boards[0];
@@ -170,7 +185,7 @@ function renderLeaderboards(history, selfId) {
   const name = p => esc(p.name) + (p.id === selfId ? '<span class="you">YOU</span>' : '');
   if (!list.length) {
     $('podium').innerHTML = '';
-    $('leaderboardRows').innerHTML = `<div class="group"><div class="empty"><b>No ${MODES[boardMode].toLowerCase()} records yet</b>${board.matches ? 'Nobody has set this record yet.' : `Finish a ${board.size}-player match to set one.`}</div></div>`;
+    $('leaderboardRows').innerHTML = `<div class="group"><div class="empty"><b>No ${MODES[boardMode].toLowerCase()} records yet</b>${board.matches ? 'Nobody has set this record yet.' : board.size ? `Finish a ${board.size}-player match to set one.` : 'Finish a match to set one.'}</div></div>`;
     return;
   }
   const place = (p, n) => p
@@ -178,7 +193,7 @@ function renderLeaderboards(history, selfId) {
     : `<div class="place p${n} empty-place"><span class="who">Open spot</span><span class="val">–</span><span class="sub">&nbsp;</span><div class="step">${n}</div></div>`;
   $('podium').innerHTML = `<div class="podium">${place(list[1], 2)}${place(list[0], 1)}${place(list[2], 3)}</div><div class="podium-base"></div>`;
 
-  const columns = [['chests','Best'], ...(solo ? [] : [['bestStreak','Streak']]), ['avg','Avg'], ['matches','Matches'], ['total','Total']];
+  const columns = [['points','Points'], ['chests','Best'], ...(solo ? [] : [['bestStreak','Streak']]), ['avg','Avg'], ['matches','Matches'], ['total','Total']];
   $('leaderboardRows').innerHTML = '<div class="group"><table class="table board"><tr><th>Player</th>' +
     columns.map(([key, label]) => `<th class="${key === metric.column ? 'sorted' : ''}">${label}</th>`).join('') + '</tr>' +
     list.map(p => { const r = rankOf(p); return `<tr${p.id === selfId ? ' class="me"' : ''}><td><span class="rank r${r}">${r}</span>${name(p)}</td>` +

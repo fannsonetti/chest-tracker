@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   command: data => ipcRenderer.send('command', data),
   browseLobbies: () => ipcRenderer.send('browseLobbies'),
   getLobbies: () => ipcRenderer.invoke('getLobbies'),
+  verifyProofs: proofs => ipcRenderer.invoke('verifyProofs', proofs),
   onLobbies: cb => ipcRenderer.on('lobbies', (_, data) => cb(data)),
   netEndMatch: () => ipcRenderer.send('netEndMatch'),
   netNewMatch: opened => ipcRenderer.send('netNewMatch', opened === true),

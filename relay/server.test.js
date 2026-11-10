@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const WebSocket = require('ws');
 const { createRelay } = require('./server');
+const { generateKeyPairSync } = require('node:crypto');
+const { verifyResult } = require('../proof');
+const keys = generateKeyPairSync('ed25519');
 function messages(socket) {
   const backlog = [], waiting = [];
   socket.on('message', raw => {
@@ -20,7 +23,7 @@ function messages(socket) {
   };
 }
 test('host controls match endings; everyone receives the same recap; host departure closes room', async () => {
-  const { server, wss, rooms } = createRelay();
+  const { server, wss, rooms } = createRelay({ signingKey:keys.privateKey });
   server.listen(0, '127.0.0.1'); await once(server,'listening');
   const url = `ws://127.0.0.1:${server.address().port}`;
   const host = new WebSocket(url), client = new WebSocket(url);
@@ -52,6 +55,13 @@ test('host controls match endings; everyone receives the same recap; host depart
     const [a,b] = await Promise.all([hostMsg('matchEnd'),clientMsg('matchEnd')]);
     assert.deepEqual(a,b); assert.deepEqual(a.players.map(p=>p.chests),[8,6]);
     assert.equal(a.players.find(p=>p.id==='host').bestStreak,5); // one opening by Friend does not break the host's streak
+    // Duo points: 10 per chest +10% per streak level, x2; the corrected solo openings score nothing.
+    assert.deepEqual(a.players.map(p=>p.points),[20+24+26+28+30,20]);
+    const signed = verifyResult(a.proof, keys.publicKey);
+    assert.equal(signed.id,a.id); assert.equal(signed.size,2);
+    assert.deepEqual(signed.players.map(p=>[p.id,p.points]),[['host',128],['friend',20]]);
+    assert.equal(verifyResult({ ...a.proof, data:a.proof.data.replace('128','999') }, keys.publicKey),null);
+    assert.equal(verifyResult(a.proof),null, 'a different relay key does not verify');
     const frozen = await clientMsg('roster');
     assert.equal(frozen.ended,true); assert.deepEqual(frozen.players.map(p=>p.chests),[8,6]);
     await hostMsg('roster');
@@ -78,7 +88,7 @@ test('host controls match endings; everyone receives the same recap; host depart
 });
 
 test('rooms with clients older than 1.1.8 start the next match immediately', async () => {
-  const { server, wss } = createRelay();
+  const { server, wss } = createRelay({ signingKey:keys.privateKey });
   server.listen(0, '127.0.0.1'); await once(server,'listening');
   const url = `ws://127.0.0.1:${server.address().port}`;
   const host = new WebSocket(url), old = new WebSocket(url), late = new WebSocket(url);
