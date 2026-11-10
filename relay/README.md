@@ -12,7 +12,7 @@ journalctl --user -u chest-tracker-relay.service -n 50
 curl http://127.0.0.1:47800/health
 ```
 
-The public lobby and full recap timeline update was deployed on November 9, 2026. Its server-side tests and a public two-player lobby/match/timeline check passed. The active release is `~/.local/share/chest-tracker-relay/releases/hosted-lobbies-20261109`.
+The public lobby and full recap timeline update was deployed on November 9, 2026. Its server-side tests and a public two-player lobby/match/timeline check passed. The previous release is `~/.local/share/chest-tracker-relay/releases/hosted-lobbies-20261109`. The 1.1.8 relay (frozen finished matches, chest-start, and compatibility with older clients) was deployed on November 10, 2026 and passed a public two-player check; the active release is `~/.local/share/chest-tracker-relay/releases/relay-1.1.8`.
 
 The direct IP endpoint uses plain WebSockets. No tunnel is installed. The following Docker/proxy instructions remain an alternative deployment with encrypted transport.
 

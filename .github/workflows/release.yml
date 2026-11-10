@@ -16,6 +16,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm run dist -- --publish always
+      # Build without publishing, then create one release with every file.
+      # electron-builder's parallel uploads could each create a release for the
+      # same tag, splitting the installer and its blockmap across two releases.
+      - run: npm run dist -- --publish never
+      - name: Publish release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="docs/release-notes-${version}.md"
+          [ -f "$notes" ] || notes=/dev/null
+          gh release create "$GITHUB_REF_NAME" --title "$version" --notes-file "$notes" "dist/ChestTracker-Setup-${version}.exe" "dist/ChestTracker-Setup-${version}.exe.blockmap" dist/latest.yml
