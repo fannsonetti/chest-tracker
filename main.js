@@ -143,7 +143,7 @@ ipcMain.on('netHost', () => hosted.create());
 ipcMain.on('netJoin', (_, id) => hosted.join(id));
 ipcMain.on('netLeave', () => hosted.leave());
 ipcMain.on('netEndMatch', () => hosted.endMatch());
-ipcMain.on('netNewMatch', () => hosted.newMatch());
+ipcMain.on('netNewMatch', (_, opened) => hosted.newMatch(opened === true));
 
 app.whenReady().then(() => {
   create();

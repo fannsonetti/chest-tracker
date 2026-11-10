@@ -32,6 +32,20 @@ function createRelay() {
     const players = room.streaks.live([...room.members.values()]);
     for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, ended:!!room.ended, players });
   }
+  // Clients from 1.1.8 on (v >= 2) understand a frozen finished match. Older
+  // clients reset as soon as a match ends, so a room with any of them keeps
+  // the old behaviour: the next match starts immediately.
+  const canFreeze = room => [...room.members.keys()].every(c => c.v >= 2);
+  function startMatch(room, now) {
+    room.ended = false; room.start = now; room.lastEnd = now;
+    room.streaks.reset();
+    for (const [peer, p] of room.members) {
+      room.members.set(peer, { ...p, chests:0, teamChests:0, matchStart:now });
+      room.streaks.observe(p.id, 0);
+    }
+    for (const peer of room.members.keys()) send(peer, { t:'matchStart', start:now });
+    broadcast(room);
+  }
   function detach(c) {
     const room = c.room;
     if (!room) return;
@@ -76,8 +90,11 @@ function createRelay() {
           if (room.members.size >= 16) return fail(c, 'Party is full');
           if ([...room.members.values()].some(q => q.id === p.id)) return fail(c, 'This player is already connected');
         }
+        c.v = Math.max(0, Math.floor(Number(m.v) || 0));
         c.room = room; room.members.set(c, p); room.streaks.observe(p.id, p.chests); broadcast(room);
         broadcastLobbies();
+        // An older client cannot wait out a frozen match, so start the next one.
+        if (room.ended && !canFreeze(room)) startMatch(room, now);
       } else if (m.t === 'state' && c.room) {
         const p = clean(m.p), old = c.room.members.get(c);
         p.id = old.id;
@@ -95,21 +112,17 @@ function createRelay() {
         room.lastEnd = now; room.ended = true;
         const message = { t:'matchEnd', id:randomUUID(), start:room.start, end:now,
           timeline:room.streaks.timeline(), players:room.streaks.recap([...room.members.values()]) };
-        // The finished match stays frozen until the host starts a new one.
         for (const peer of room.members.keys()) send(peer, message);
-        broadcast(room);
+        // The finished match stays frozen until the host starts a new one or
+        // anyone opens a chest; rooms with older clients move on immediately.
+        if (canFreeze(room)) broadcast(room);
+        else startMatch(room, now);
       } else if (m.t === 'newMatch' && c.room) {
         const room = c.room;
-        if (room.host !== c) return fail(c, 'Only the host can start a new match');
+        // The host can start the next match; anyone can by opening a chest.
+        if (room.host !== c && !m.opened) return fail(c, 'Only the host can start a new match');
         if (!room.ended) return;
-        room.ended = false; room.start = now; room.lastEnd = now;
-        room.streaks.reset();
-        for (const [peer, p] of room.members) {
-          room.members.set(peer, { ...p, chests:0, teamChests:0, matchStart:now });
-          room.streaks.observe(p.id, 0);
-        }
-        for (const peer of room.members.keys()) send(peer, { t:'matchStart', start:now });
-        broadcast(room);
+        startMatch(room, now);
       }
     });
   });

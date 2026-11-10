@@ -458,7 +458,7 @@ function renderGameEnd() {
   el.hidden = hide;
   if (hide) return;
   el.innerHTML = net.status === 'client' || net.status === 'connecting'
-    ? '<div class="wait">Game over · waiting for the host</div>'
+    ? '<div class="wait">Game over · open a chest to start the next game</div>'
     : '<button class="btn" id="newGame">' + PLAY + 'New game' + (s.keys.match ? '<kbd>' + esc(prettyKey(s.keys.match)) + '</kbd>' : '') + '</button>';
   const b = $('newGame');
   if (b) b.onclick = newGame;
@@ -627,13 +627,25 @@ function bumpIn(o, f, d) {
     o.teamChests = Math.max(o.chests, o.teamChests + d);
   }
 }
+let pendingOpen = null;   // an opening waiting for the party's next game to start
 const soloOpenings = new OpeningStreaks();
 soloOpenings.observe(s.id, s.cur.chests);
 function bump(f, d) {
   if (!['chests','teamChests'].includes(f) || !Number.isFinite(d)) return;
   if (s.cur.ended) {
-    $('notice').textContent = net.status === 'client' ? 'Game over · waiting for the host' : 'Game over · start a new game to count';
-    noticeUntil = Date.now() + 3000; renderNotice(); return;
+    // Opening a chest after a game ends starts the next one (for the whole party).
+    const party = net.status === 'host' || net.status === 'client';
+    if (d > 0 && party && net.ended) {
+      pendingOpen = { f, d, at:Date.now() };
+      window.api.netNewMatch?.(true);
+      $('notice').textContent = 'Starting a new game…';
+      noticeUntil = Date.now() + 3000; renderNotice(); return;
+    }
+    if (d <= 0 || net.status === 'connecting') {
+      $('notice').textContent = 'Game over · open a chest to start a new game';
+      noticeUntil = Date.now() + 3000; renderNotice(); return;
+    }
+    startGame(Date.now());
   }
   const available = f === 'chests' ? s.cur.chests : s.cur.teamChests - s.cur.chests;
   d = Math.max(-available, Math.trunc(d));
@@ -759,14 +771,18 @@ window.api.onNet(d => {
   net = next;
   // Joining a game in progress leaves your own finished game behind.
   if (joinedLive) { startGame(Date.now()); return; }
-  if (!['host', 'client'].includes(net.status)) noticeUntil = 0;
+  if (!['host', 'client'].includes(net.status)) { noticeUntil = 0; pendingOpen = null; }
   if (net.status === 'host' || net.status === 'client') syncTeamChests(net.players);
   else teammateCounts.clear();
   render();
 });
 
 window.api.onMatchEnd?.(finishMatch);
-window.api.onMatchStart?.(e => { if (s.cur.ended) startGame(e.start); });
+window.api.onMatchStart?.(e => {
+  if (s.cur.ended) startGame(e.start);
+  const open = pendingOpen; pendingOpen = null;
+  if (open && Date.now() - open.at < 10000) bump(open.f, open.d);
+});
 window.api.onConfigure?.(patch => {
   if (['personal', 'team', 'merged', 'both'].includes(patch.countMode)) s.countMode = patch.countMode;
   for (const key of ['compact', 'recaps', 'streakPopups', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];

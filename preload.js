@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('api', {
   getLobbies: () => ipcRenderer.invoke('getLobbies'),
   onLobbies: cb => ipcRenderer.on('lobbies', (_, data) => cb(data)),
   netEndMatch: () => ipcRenderer.send('netEndMatch'),
-  netNewMatch: () => ipcRenderer.send('netNewMatch'),
+  netNewMatch: opened => ipcRenderer.send('netNewMatch', opened === true),
   onConfigure: cb => ipcRenderer.on('configure', (_, data) => cb(data)),
   onCommand: cb => ipcRenderer.on('command', (_, data) => cb(data)),
   onSnapshot: cb => ipcRenderer.on('snapshot', (_, data) => cb(data)),

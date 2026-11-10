@@ -61,11 +61,13 @@ class HostedConnection {
     if (this.socket?.readyState === WebSocket.OPEN) this.send({...action,p:this.player});
     else this.browse();
   }
-  create() { this.enter({t:'create'}); }
-  join(id) { this.enter({t:'join',code:String(id || '')}); }
+  // v:2 tells the relay this client can wait out a frozen finished match.
+  create() { this.enter({t:'create',v:2}); }
+  join(id) { this.enter({t:'join',code:String(id || ''),v:2}); }
   state(player) { this.player = player; if (this.role) this.send({t:'state',p:player}); }
   endMatch() { if (this.role === 'host') this.send({t:'endMatch'}); }
-  newMatch() { if (this.role === 'host') this.send({t:'newMatch'}); }
+  // opened: a chest opening after the game ended starts the next one; any member may.
+  newMatch(opened = false) { if (this.role === 'host' || (opened && this.role)) this.send({t:'newMatch',opened:!!opened}); }
   leave() {
     this.close();
     this.onNet({status:'off',players:[]});

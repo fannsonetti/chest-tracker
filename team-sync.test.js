@@ -78,9 +78,9 @@ test('match summary is sent to the popup after freezing the match, without chang
   assert.equal(t.run('window.popup.match.teamChests'),3);
   assert.equal(t.run('window.popup.match.recap[0].chests'),3);
   assert.equal(t.run('s.cur.chests'),3);
-  t.run("bump('chests', 1)");
+  t.run("bump('chests', -1)");
   assert.equal(t.run('s.cur.chests'),3);
-  t.run("newGame(); bump('chests', 1)");
+  t.run("bump('chests', 1)");
   assert.equal(t.run('s.cur.chests'),1);
   assert.equal(t.run('window.popup.match.recap[0].chests'),3);
 });
@@ -152,7 +152,6 @@ test('session rates include personal and observed teammate chests and completed 
   t.roster([peer(123)]);
   t.run('finishMatch()');
   t.run("bump('chests', 1)");
-  t.run("startGame(Date.now()); bump('chests', 1)");
   const stats = JSON.parse(t.run('JSON.stringify(Object.fromEntries(sessionStats(3601000)))'));
   assert.deepEqual(stats, {
     Duration: '01:00:00', 'Your chests': 3, 'Team chests': 6,
@@ -280,7 +279,7 @@ test('ending a game freezes it until New game; guests wait for the host', () => 
   t.run("s.cur.start = Date.now() - 65000; bump('chests', 2); finishMatch()");
   assert.ok(t.run('s.cur.ended'));
   assert.equal(t.run('s.matches'),1);
-  t.run("bump('chests', 1); renderBar()");
+  t.run("bump('chests', -1); renderBar()");
   assert.deepEqual(t.counts(),[2,2,2,2]);
   assert.equal(t.run("$('matchNo').textContent"),'Game 1');
   assert.ok(t.run("$('matchNow').textContent").endsWith('· ended'));
@@ -298,8 +297,29 @@ test('ending a game freezes it until New game; guests wait for the host', () => 
   g.run("finishMatch({id:'m',end:Date.now(),players:[{id:s.id,name:'You',chests:1},{id:'teammate',name:'Friend',chests:2}]})");
   g.run("net.ended = true; newGame(); renderGameEnd()");
   assert.ok(g.run('s.cur.ended'));
-  assert.ok(g.run("$('gameEnd').innerHTML.includes('waiting for the host')"));
+  assert.ok(g.run("$('gameEnd').innerHTML.includes('open a chest to start')"));
   g.run('startGame(500)');
   assert.equal(g.run('s.cur.start'),500);
   assert.equal(g.run('s.cur.ended'),undefined);
+});
+
+test('opening a chest after a game ends starts the next one', () => {
+  const t = tracker();
+  t.run("bump('chests', 2); finishMatch()");
+  assert.ok(t.run('s.cur.ended'));
+  t.run("bump('chests', 1)");
+  assert.ok(!t.run('s.cur.ended'));
+  assert.equal(t.run('s.matches'),1);
+  assert.deepEqual(t.counts(),[3,3,1,1]);
+
+  // In a frozen party the opening asks the relay to start, then counts once it has.
+  const g = tracker();
+  g.roster([peer(2)]);
+  g.run("finishMatch({id:'m',end:Date.now(),players:[{id:s.id,name:'You',chests:0},{id:'teammate',name:'Friend',chests:2}]})");
+  g.run("net.ended = true; window.__sent = []; window.api.netNewMatch = o => window.__sent.push(o); bump('chests', 1)");
+  assert.equal(g.run('JSON.stringify(window.__sent)'),'[true]');
+  assert.ok(g.run('s.cur.ended'));
+  g.run("net.ended = false; startGame(900); const open = pendingOpen; pendingOpen = null; bump(open.f, open.d)");
+  assert.equal(g.run('s.cur.chests'),1);
+  assert.equal(g.run('s.cur.start'),900);
 });
