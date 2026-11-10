@@ -388,7 +388,7 @@ function checkOvertakes(previous, current) {
     noticeUntil = Date.now() + 4000;
   }
 }
-// A streak (2+ in a row) is broken when someone else opens a chest.
+// A streak (2+ in a row) is broken only when someone else starts one.
 // Corrections that shrink a streak and match resets are not breaks.
 function checkStreakBreaks(previous, current) {
   if (!s.streakPopups || previous.status !== current.status || !['host', 'client'].includes(current.status)) return;
@@ -396,13 +396,15 @@ function checkStreakBreaks(previous, current) {
   if (!was) return;
   const now = current.players.find(p => p.id === was.id);
   if (!now || now.matchStart !== was.matchStart || asStreak(now.streak || 0) > 0) return;
-  const breaker = current.players.find(p => {
+  const opened = p => {
     const before = previous.players.find(q => q.id === p.id);
     return p.id !== was.id && before && before.matchStart === p.matchStart && p.chests > before.chests;
-  });
+  };
+  // The new streak holder broke it; older servers break on any opening.
+  const breaker = current.players.find(p => opened(p) && asStreak(p.streak || 0) > 0) || current.players.find(opened);
   if (!breaker) return;
   window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:breaker.name, n:was.streak,
-    mine:was.id === s.id, byMe:breaker.id === s.id, opacity:s.opacity });
+    mine:was.id === s.id, byMe:breaker.id === s.id, opacity:s.opacity, sound:s.sound });
 }
 function renderNotice() {
   const el = $('notice'), hidden = s.hidden || Date.now() >= noticeUntil;

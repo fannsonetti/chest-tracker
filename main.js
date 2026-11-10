@@ -1,43 +1,44 @@
 const { app, BrowserWindow, globalShortcut, screen, ipcMain } = require('electron');
 const path = require('path');
 
+// A second launch just exits; the running copy keeps its HUD and party.
+if (!app.requestSingleInstanceLock()) { app.exit(0); return; }
+let quitting = false;
+app.on('before-quit', () => { quitting = true; });
+
 const W = 248;
 let win;
 let optionsWin;
-// Popups (match recap, streak broken) are a second HUD-styled overlay docked
-// under the MiniHUD (or above it when there is no room). They never take focus.
-const POPUP_W = 272, POPUP_GAP = 8;
-let popupWin, popupReady = false, popupAbove = false, pendingPopups = [];
-function placePopup(height) {
+// Popups are a second HUD-styled overlay that never takes focus. A streak
+// popup sits at the top middle of the HUD's screen; a match recap sits in the
+// middle. The popup page reports its kind and content size.
+const POPUP_W = 300, STREAK_TOP = 28;
+let popupWin, popupReady = false, pendingPopups = [], popupKind = 'recap', popupSize = { w:POPUP_W, h:120 };
+function placePopup(size) {
   if (!popupWin || popupWin.isDestroyed() || !win) return;
-  const hud = win.getBounds();
-  const { workArea } = screen.getDisplayMatching(hud);
-  const h = Math.max(40, Math.min(workArea.height - 16, Math.ceil(height || popupWin.getBounds().height)));
-  const anchorRight = hud.x + hud.width / 2 > workArea.x + workArea.width / 2;
-  let x = anchorRight ? hud.x + hud.width - POPUP_W : hud.x;
-  x = Math.max(workArea.x + 4, Math.min(workArea.x + workArea.width - POPUP_W - 4, x));
-  popupAbove = hud.y + hud.height + POPUP_GAP + h > workArea.y + workArea.height;
-  const y = popupAbove ? Math.max(workArea.y, hud.y - POPUP_GAP - h) : hud.y + hud.height + POPUP_GAP;
-  popupWin.setBounds({ x, y, width:POPUP_W, height:h });
+  if (size?.kind) popupKind = size.kind;
+  if (Number.isFinite(size?.w) && Number.isFinite(size?.h)) popupSize = { w:size.w, h:size.h };
+  const { workArea } = screen.getDisplayMatching(win.getBounds());
+  const w = Math.max(80, Math.min(workArea.width - 16, Math.ceil(popupSize.w)));
+  const h = Math.max(40, Math.min(workArea.height - 16, Math.ceil(popupSize.h)));
+  const x = Math.round(workArea.x + (workArea.width - w) / 2);
+  const y = popupKind === 'streakBroken' ? workArea.y + STREAK_TOP : Math.round(workArea.y + (workArea.height - h) / 2);
+  popupWin.setBounds({ x, y, width:w, height:h });
 }
 function openPopup(item) {
   if (popupWin && !popupWin.isDestroyed()) {
     if (popupReady) popupWin.webContents.send('popup', item); else pendingPopups.push(item);
-    placePopup(); if (!popupWin.isVisible()) popupWin.showInactive();
-    popupWin.setAlwaysOnTop(true, 'screen-saver');
+    // A hidden popup is shown once the page reports its new size and kind.
+    if (popupWin.isVisible()) popupWin.setAlwaysOnTop(true, 'screen-saver');
     return;
   }
-  pendingPopups = [item]; popupReady = false;
+  pendingPopups = [item]; popupReady = false; popupKind = item.kind;
   popupWin = new BrowserWindow({ width:POPUP_W, height:120, show:false,
     frame:false, transparent:true, alwaysOnTop:true, resizable:false, focusable:false,
     skipTaskbar:true, hasShadow:false, title:'Chest Tracker · Popup',
-    webPreferences:{ preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false } });
+    webPreferences:{ preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false, spellcheck:false, autoplayPolicy:'no-user-gesture-required' } });
   popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen:true });
   popupWin.loadFile(path.join(__dirname, 'popup.html'));
-  popupWin.once('ready-to-show', () => {
-    if (!popupWin || popupWin.isDestroyed()) return;
-    placePopup(); popupWin.setAlwaysOnTop(true, 'screen-saver'); popupWin.showInactive();
-  });
   popupWin.on('closed', () => { popupWin = null; popupReady = false; pendingPopups = []; });
 }
 const fromPopup = event => event.sender === popupWin?.webContents;
@@ -46,22 +47,41 @@ ipcMain.handle('getPopups', event => {
   if (!fromPopup(event)) return [];
   popupReady = true; const items = pendingPopups; pendingPopups = []; return items;
 });
-ipcMain.on('popupResize', (event, size) => { if (fromPopup(event)) placePopup(size?.h); });
+ipcMain.on('popupResize', (event, size) => {
+  if (!fromPopup(event) || !size || typeof size !== 'object') return;
+  placePopup(size);
+  if (!popupWin.isVisible()) { popupWin.setAlwaysOnTop(true, 'screen-saver'); popupWin.showInactive(); }
+});
 ipcMain.on('closePopup', event => { if (fromPopup(event)) popupWin.hide(); });
 let snapshot = null;
 let updateStatus = { state:'checking', message:'Checking for updates…' };
-function openOptions(tab = 'settings') {
-  if (optionsWin && !optionsWin.isDestroyed()) {
-    optionsWin.show(); optionsWin.focus(); optionsWin.webContents.send('optionsTab', tab); return;
-  }
-  optionsWin = new BrowserWindow({ width:820, height:760, minWidth:640, minHeight:580,
-    title:'Chest Tracker · Options', backgroundColor:'#101217', autoHideMenuBar:true,
-    webPreferences:{ preload:path.join(__dirname, 'preload.js'), contextIsolation:true, nodeIntegration:false, autoplayPolicy:'no-user-gesture-required' } });
+// The options window is built hidden shortly after boot and only hidden when
+// closed, so opening it is instant instead of a fresh page load each time.
+function buildOptions(tab = 'settings') {
+  optionsWin = new BrowserWindow({ width:900, height:760, minWidth:680, minHeight:560, show:false,
+    title:'Chest Tracker · Options', backgroundColor:'#0c0d10', autoHideMenuBar:true,
+    webPreferences:{ preload:path.join(__dirname, 'preload.js'), contextIsolation:true, nodeIntegration:false, spellcheck:false, autoplayPolicy:'no-user-gesture-required' } });
   optionsWin.loadFile(path.join(__dirname, 'options.html'), { query:{ tab } });
+  optionsWin.on('close', e => { if (!quitting) { e.preventDefault(); optionsWin.hide(); } });
+  optionsWin.on('hide', () => registerKeys());
   optionsWin.on('closed', () => { optionsWin = null; registerKeys(); });
 }
+function openOptions(tab = 'settings') {
+  if (!optionsWin || optionsWin.isDestroyed()) buildOptions(tab);
+  const w = optionsWin;
+  const reveal = () => { if (w.isDestroyed()) return; w.webContents.send('optionsTab', tab); w.show(); w.focus(); };
+  if (w.webContents.isLoading()) w.webContents.once('did-finish-load', reveal); else reveal();
+}
 ipcMain.on('openOptions', (_, tab) => openOptions(tab));
+// Updates install only while nothing is at stake: not in a party and no count
+// change for a few minutes.
+let lastCounts = null, lastCountChange = Date.now();
+const IDLE_MS = 3 * 60 * 1000;
+const updateIdle = () => snapshot?.net?.status === 'off' && Date.now() - lastCountChange > IDLE_MS;
 ipcMain.on('snapshot', (_, data) => {
+  const counts = JSON.stringify([data?.s?.chests, data?.s?.teamChests, data?.s?.cur?.chests, data?.s?.cur?.teamChests]);
+  if (lastCounts !== null && counts !== lastCounts) lastCountChange = Date.now();
+  lastCounts = counts;
   snapshot = data;
   if (optionsWin && !optionsWin.isDestroyed()) optionsWin.webContents.send('snapshot', data);
 });
@@ -74,11 +94,13 @@ function create() {
   win = new BrowserWindow({
     width: W, height: 200,
     x: workArea.x + workArea.width - W - 12, y: workArea.y + 12,
-    frame: false, transparent: true, alwaysOnTop: true, resizable: false,
+    frame: false, transparent: true, alwaysOnTop: true, resizable: false, show: false,
     // Never take focus: clicking the HUD mid-game must not pull focus from the game.
     focusable: false, skipTaskbar: true, hasShadow: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), autoplayPolicy:'no-user-gesture-required' }
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), spellcheck:false, backgroundThrottling:false, autoplayPolicy:'no-user-gesture-required' }
   });
+  // Show once painted (no empty transparent frame), without taking focus.
+  win.once('ready-to-show', () => { win.showInactive(); pinOnTop(); });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   pinOnTop();
   // Some games and apps grab the topmost slot when focused; take it back.
@@ -104,7 +126,6 @@ ipcMain.on('resize', (_, size) => {
   const { workArea } = screen.getDisplayMatching(b);
   const anchorRight = b.x + b.width / 2 > workArea.x + workArea.width / 2;
   win.setBounds({ x: anchorRight ? b.x + b.width - w : b.x, y: b.y, width: w, height: h });
-  if (popupWin && !popupWin.isDestroyed() && popupWin.isVisible()) placePopup();
 });
 ipcMain.on('quit', () => app.quit());
 
@@ -125,9 +146,15 @@ ipcMain.on('pauseKeys', () => globalShortcut.unregisterAll());
 ipcMain.on('resumeKeys', () => registerKeys());
 
 // All squad traffic and public lobby discovery use the fixed hosted server.
-const { HostedConnection } = require('./hosted-connection');
+// Loaded on first use so `ws` stays off the startup path.
 let lobbySnapshot = { rooms:[], error:'' };
-const hosted = new HostedConnection({
+let hostedConnection = null;
+const hosted = new Proxy({}, { get:(_, key) => {
+  if (!hostedConnection) hostedConnection = makeHosted();
+  const value = hostedConnection[key];
+  return typeof value === 'function' ? value.bind(hostedConnection) : value;
+} });
+const makeHosted = () => new (require('./hosted-connection').HostedConnection)({
   onNet:data => toUI('net', data),
   onLobbies:data => {
     lobbySnapshot = data;
@@ -148,12 +175,13 @@ ipcMain.on('netNewMatch', (_, opened) => hosted.newMatch(opened === true));
 app.whenReady().then(() => {
   create();
   win.webContents.once('did-finish-load', () => {
-    const initialCounts = snapshot?.s?.chests;
+    const launchedAt = Date.now();
     require('./updater').startUpdater(app, data => {
       updateStatus = data; toUI('update', data);
       if (optionsWin && !optionsWin.isDestroyed()) optionsWin.webContents.send('update', data);
-    }, () => snapshot?.net?.status === 'off' && snapshot?.s?.chests === initialCounts);
+    }, () => snapshot?.net?.status === 'off' && (lastCountChange <= launchedAt || updateIdle()));
+    setTimeout(() => { if (!optionsWin) buildOptions(); }, 2500);
   });
 });
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hosted.close(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); hostedConnection?.close(); });
 app.on('window-all-closed', () => app.quit());

@@ -64,8 +64,36 @@ test('a single opening is not a streak; two in a row starts one', () => {
   s.observe('a',0); s.observe('b',0);
   s.observe('a',1); assert.equal(s.current('a'),0); assert.equal(s.longest('a'),0);
   s.observe('a',2); assert.equal(s.current('a'),2);
-  s.observe('b',1); assert.equal(s.current('a'),0); assert.equal(s.current('b'),0); assert.equal(s.longest('a'),2);
   assert.deepEqual(recapPlayers([{name:'a',chests:1,bestStreak:1},{name:'b',chests:1,bestStreak:2}]).map(p=>p.bestStreak),[0,2]);
+});
+
+test('one opening by someone else does not break a streak; a second one takes it over', () => {
+  const s = new OpeningStreaks();
+  s.observe('me',0); s.observe('b',0);
+  s.observe('me',3); assert.equal(s.current('me'),3);
+  s.observe('b',1); assert.equal(s.current('me'),3); assert.equal(s.current('b'),0);
+  s.observe('b',2); assert.equal(s.current('me'),0); assert.equal(s.current('b'),2);
+  assert.equal(s.longest('me'),3); assert.equal(s.longest('b'),2);
+});
+
+test('the holder opening first resets every challenger and keeps growing the streak', () => {
+  const s = new OpeningStreaks();
+  for (const id of ['me','b','c']) s.observe(id,0);
+  s.observe('me',2);
+  s.observe('b',1); s.observe('c',1);
+  s.observe('me',3); assert.equal(s.current('me'),3);
+  s.observe('b',2); assert.equal(s.current('me'),3, 'b restarted from 0, so one opening is not enough');
+  s.observe('c',2); assert.equal(s.current('me'),3);
+  s.observe('b',3); assert.equal(s.current('b'),2); assert.equal(s.current('me'),0);
+  s.observe('me',4); assert.equal(s.current('b'),2, 'one holder-less opening does not take it back');
+  s.observe('me',5); assert.equal(s.current('me'),2); assert.equal(s.longest('me'),3);
+});
+
+test('with no holder, the first player to reach two openings starts the streak', () => {
+  const s = new OpeningStreaks();
+  s.observe('a',0); s.observe('b',0);
+  s.observe('a',1); s.observe('b',1); assert.equal(s.current('a'),0); assert.equal(s.current('b'),0);
+  s.observe('a',2); assert.equal(s.current('a'),2);
 });
 
 test('recap stages show one category each and skip squad-only stages when solo', () => {
@@ -81,16 +109,42 @@ test('recap stages show one category each and skip squad-only stages when solo',
   assert.deepEqual(recapStages({ start:0, end:0, recap:[{id:'me',name:'Me',chests:0}] }, 'me').map(s=>s.key),['total']);
 });
 
-test('another player breaks a streak; corrections undo openings; baseline and resets exclude old chests', () => {
+test('challengers do not break a streak; corrections undo openings; baseline and resets exclude old chests', () => {
   const s = new OpeningStreaks();
   s.observe('a',20); s.observe('b',10);
   s.observe('a',23); s.observe('b',11); s.observe('a',25);
-  assert.equal(s.longest('a'),3); assert.equal(s.longest('b'),0);
-  assert.equal(s.current('a'),2); assert.equal(s.current('b'),0);
-  assert.deepEqual(s.live([{id:'a'},{id:'b'}]).map(p=>p.streak),[2,0]);
-  s.observe('b',10);
-  assert.equal(s.longest('a'),5);
-  assert.equal(s.current('a'),5);
+  assert.equal(s.longest('a'),5); assert.equal(s.longest('b'),0);
+  assert.equal(s.current('a'),5); assert.equal(s.current('b'),0);
+  assert.deepEqual(s.live([{id:'a'},{id:'b'}]).map(p=>p.streak),[5,0]);
+  s.observe('b',13); assert.equal(s.current('b'),2); assert.equal(s.current('a'),0);
+  s.observe('b',12); assert.equal(s.current('a'),5, 'correcting the takeover gives the streak back');
   s.observe('a',24); assert.equal(s.longest('a'),4);
   s.reset(); s.observe('a',0); s.observe('a',2); assert.equal(s.longest('a'),2);
+});
+
+test('a takeover keeps the other challengers hidden counts', () => {
+  const s = new OpeningStreaks();
+  for (const id of ['me','a','b']) s.observe(id,0);
+  s.observe('me',2);
+  s.observe('a',1); s.observe('b',1);
+  s.observe('a',2); assert.equal(s.current('a'),2);
+  s.observe('b',2); assert.equal(s.current('b'),2, 'b needed only one more'); assert.equal(s.current('a'),0);
+});
+
+test('leaderboards add matches and averages; career stats summarize your own matches', () => {
+  const { careerStats } = require('./match');
+  const player = (id, chests, bestStreak) => ({id,name:id,chests,bestStreak});
+  const history = [
+    {n:1,start:0,end:600000,chests:10,teamChests:15,recap:[player('me',10,4),player('b',5,2)]},
+    {n:2,start:0,end:600000,chests:20,teamChests:50,recap:[player('me',20,3),player('b',30,6)]},
+    {n:3,start:0,end:300000,chests:7,teamChests:7,recap:[player('me',7,7)]}
+  ];
+  const duo = matchLeaderboards(history)[1];
+  assert.equal(duo.matches,2);
+  assert.deepEqual(duo.avg.map(p=>[p.id,p.avg]),[['b',17.5],['me',15]]);
+  assert.equal(duo.played[0].matches,2);
+  const c = careerStats(history,'me');
+  assert.equal(c.matches,3); assert.equal(c.chests,37); assert.equal(c.best,20); assert.equal(c.streak,4);
+  assert.equal(c.mvps,1); assert.equal(c.modes[0].matches,1); assert.equal(c.modes[0].streak,0);
+  assert.equal(c.perMin,1.5); assert.equal(c.recent.length,3);
 });

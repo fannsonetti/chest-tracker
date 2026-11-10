@@ -51,7 +51,7 @@ test('host controls match endings; everyone receives the same recap; host depart
     send(host,{t:'endMatch'});
     const [a,b] = await Promise.all([hostMsg('matchEnd'),clientMsg('matchEnd')]);
     assert.deepEqual(a,b); assert.deepEqual(a.players.map(p=>p.chests),[8,6]);
-    assert.equal(a.players.find(p=>p.id==='host').bestStreak,3);
+    assert.equal(a.players.find(p=>p.id==='host').bestStreak,5); // one opening by Friend does not break the host's streak
     const frozen = await clientMsg('roster');
     assert.equal(frozen.ended,true); assert.deepEqual(frozen.players.map(p=>p.chests),[8,6]);
     await hostMsg('roster');
