@@ -36,7 +36,9 @@ function openPopup(item) {
   popupWin = new BrowserWindow({ width:POPUP_W, height:120, show:false,
     frame:false, transparent:true, alwaysOnTop:true, resizable:false, focusable:false,
     skipTaskbar:true, hasShadow:false, title:'Chest Tracker · Popup',
-    webPreferences:{ preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false, spellcheck:false, autoplayPolicy:'no-user-gesture-required' } });
+    // Keep timers running while hidden, so a popup queued behind another one
+    // still shows on time.
+    webPreferences:{ preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false, spellcheck:false, backgroundThrottling:false, autoplayPolicy:'no-user-gesture-required' } });
   popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen:true });
   popupWin.loadFile(path.join(__dirname, 'popup.html'));
   popupWin.on('closed', () => { popupWin = null; popupReady = false; pendingPopups = []; });

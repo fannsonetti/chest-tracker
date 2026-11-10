@@ -9,8 +9,11 @@ let timer = 0, startedAt = 0, remaining = 0, hovering = false;
 
 // Report the panel's natural size (not its animated transform) and kind,
 // so the main process can place it: streaks top middle, recaps centered.
+// Measured right away, not on the next animation frame: after the first
+// popup closes the window is hidden, and a hidden window gets no animation
+// frames, so waiting for one left every later popup invisible.
 function fit() {
-  requestAnimationFrame(() => window.api.popupResize({ w:panel.offsetWidth, h:panel.offsetHeight, kind:current?.kind || 'recap' }));
+  window.api.popupResize({ w:panel.offsetWidth, h:panel.offsetHeight, kind:current?.kind || 'recap' });
 }
 function applyOpacity(opacity) {
   const a = Math.max(0, Math.min(100, Number.isFinite(opacity) ? opacity : 88)) / 100;
