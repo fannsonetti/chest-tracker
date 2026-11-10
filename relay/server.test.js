@@ -52,9 +52,17 @@ test('host controls match endings; everyone receives the same recap; host depart
     const [a,b] = await Promise.all([hostMsg('matchEnd'),clientMsg('matchEnd')]);
     assert.deepEqual(a,b); assert.deepEqual(a.players.map(p=>p.chests),[8,6]);
     assert.equal(a.players.find(p=>p.id==='host').bestStreak,3);
+    const frozen = await clientMsg('roster');
+    assert.equal(frozen.ended,true); assert.deepEqual(frozen.players.map(p=>p.chests),[8,6]);
+    await hostMsg('roster');
+    send(client,{t:'newMatch'});
+    assert.equal((await clientMsg('error')).error,'Only the host can start a new match');
+    send(host,{t:'newMatch'});
+    const [started] = await Promise.all([clientMsg('matchStart'),hostMsg('matchStart')]);
     const reset = await clientMsg('roster');
+    assert.equal(reset.ended,false);
     assert.deepEqual(reset.players.map(p=>p.chests),[0,0]);
-    assert.equal(reset.players[0].matchStart,a.end);
+    assert.equal(reset.players[0].matchStart,started.start);
     const closed = once(client,'close'); host.close(); await closed;
     assert.equal(rooms.size,0);
   } finally {

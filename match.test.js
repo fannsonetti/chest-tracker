@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { OpeningStreaks } = require('./match');
 const { recapDetails } = require('./match');
-const { matchLeaderboards, recapPlayers } = require('./match');
+const { matchLeaderboards, recapPlayers, recapStages } = require('./match');
 
 test('solo openings never build streaks, including across joins, leaves and corrections', () => {
   const s = new OpeningStreaks();
@@ -13,8 +13,9 @@ test('solo openings never build streaks, including across joins, leaves and corr
   s.setCompetitive(false); s.observe('a',15); s.observe('a',12);
   assert.equal(s.current('a'),0); assert.equal(s.longest('a'),2);
   s.setCompetitive(true); s.observe('a',13);
-  assert.equal(s.current('a'),1); assert.equal(s.longest('a'),2);
-  assert.equal(s.timeline().reduce((n,e)=>n+e.n,0),13);
+  assert.equal(s.current('a'),0); assert.equal(s.longest('a'),2);
+  s.observe('a',14); assert.equal(s.current('a'),2);
+  assert.equal(s.timeline().reduce((n,e)=>n+e.n,0),14);
   assert.equal(recapPlayers([{name:'Solo',bestStreak:99}])[0].bestStreak,0);
 });
 
@@ -58,11 +59,33 @@ test('full recap escapes names and renders duration, contributions and cumulativ
   assert.ok(!html.includes('<script>'));
   assert.ok(recapDetails({start:0,end:0,recap:[]}).includes('No recorded opening timeline'));
 });
+test('a single opening is not a streak; two in a row starts one', () => {
+  const s = new OpeningStreaks();
+  s.observe('a',0); s.observe('b',0);
+  s.observe('a',1); assert.equal(s.current('a'),0); assert.equal(s.longest('a'),0);
+  s.observe('a',2); assert.equal(s.current('a'),2);
+  s.observe('b',1); assert.equal(s.current('a'),0); assert.equal(s.current('b'),0); assert.equal(s.longest('a'),2);
+  assert.deepEqual(recapPlayers([{name:'a',chests:1,bestStreak:1},{name:'b',chests:1,bestStreak:2}]).map(p=>p.bestStreak),[0,2]);
+});
+
+test('recap stages show one category each and skip squad-only stages when solo', () => {
+  const match = { n:4, start:0, end:120000, teamChests:5,
+    recap:[{id:'me',name:'Me',chests:3,bestStreak:3},{id:'b',name:'<b>',chests:2,bestStreak:1}],
+    timeline:[{id:'me',n:3,at:30000},{id:'b',n:2,at:90000}] };
+  const stages = recapStages(match, 'me');
+  assert.deepEqual(stages.map(s=>s.key),['total','share','streaks','timeline']);
+  assert.ok(stages[0].html.includes('2.5'));
+  assert.ok(stages[1].html.includes('60%') && stages[1].html.includes('You'));
+  assert.ok(stages[1].html.includes('&lt;b&gt;') && !stages.some(s=>s.html.includes('<b><b>')));
+  assert.ok(stages[2].html.includes('>3<'));
+  assert.deepEqual(recapStages({ start:0, end:0, recap:[{id:'me',name:'Me',chests:0}] }, 'me').map(s=>s.key),['total']);
+});
+
 test('another player breaks a streak; corrections undo openings; baseline and resets exclude old chests', () => {
   const s = new OpeningStreaks();
   s.observe('a',20); s.observe('b',10);
   s.observe('a',23); s.observe('b',11); s.observe('a',25);
-  assert.equal(s.longest('a'),3); assert.equal(s.longest('b'),1);
+  assert.equal(s.longest('a'),3); assert.equal(s.longest('b'),0);
   assert.equal(s.current('a'),2); assert.equal(s.current('b'),0);
   assert.deepEqual(s.live([{id:'a'},{id:'b'}]).map(p=>p.streak),[2,0]);
   s.observe('b',10);

@@ -30,7 +30,7 @@ function createRelay() {
   function broadcast(room) {
     room.streaks.setCompetitive(room.members.size > 1);
     const players = room.streaks.live([...room.members.values()]);
-    for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, players });
+    for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, ended:!!room.ended, players });
   }
   function detach(c) {
     const room = c.room;
@@ -91,17 +91,24 @@ function createRelay() {
       } else if (m.t === 'endMatch' && c.room) {
         const room = c.room;
         if (room.host !== c) return fail(c, 'Only the host can end a match');
-        if (now - room.lastEnd < 1500) return;
-        room.lastEnd = now;
+        if (room.ended) return;
+        room.lastEnd = now; room.ended = true;
         const message = { t:'matchEnd', id:randomUUID(), start:room.start, end:now,
           timeline:room.streaks.timeline(), players:room.streaks.recap([...room.members.values()]) };
-        room.start = now;
+        // The finished match stays frozen until the host starts a new one.
         for (const peer of room.members.keys()) send(peer, message);
+        broadcast(room);
+      } else if (m.t === 'newMatch' && c.room) {
+        const room = c.room;
+        if (room.host !== c) return fail(c, 'Only the host can start a new match');
+        if (!room.ended) return;
+        room.ended = false; room.start = now; room.lastEnd = now;
         room.streaks.reset();
         for (const [peer, p] of room.members) {
           room.members.set(peer, { ...p, chests:0, teamChests:0, matchStart:now });
           room.streaks.observe(p.id, 0);
         }
+        for (const peer of room.members.keys()) send(peer, { t:'matchStart', start:now });
         broadcast(room);
       }
     });

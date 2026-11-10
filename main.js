@@ -4,25 +4,50 @@ const path = require('path');
 const W = 248;
 let win;
 let optionsWin;
-let recapWin, recapSnapshot;
-function openRecap(data) {
-  recapSnapshot = data;
-  const { workArea } = screen.getDisplayMatching(win.getBounds());
-  const width = Math.min(680, workArea.width - 32), height = Math.min(800, workArea.height - 32);
-  const bounds = {width,height,x:workArea.x + Math.round((workArea.width-width)/2),y:workArea.y + Math.round((workArea.height-height)/2)};
-  if (recapWin && !recapWin.isDestroyed()) {
-    recapWin.setBounds(bounds); recapWin.webContents.send('recap', data); recapWin.show(); recapWin.focus(); return;
-  }
-  recapWin = new BrowserWindow({ ...bounds, title:'Chest Tracker · Match summary', backgroundColor:'#101217',
-    autoHideMenuBar:true, alwaysOnTop:true, show:false,
-    webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false} });
-  recapWin.loadFile(path.join(__dirname,'recap.html'));
-  recapWin.once('ready-to-show', () => { if (recapWin && !recapWin.isDestroyed()) { recapWin.setAlwaysOnTop(true,'screen-saver'); recapWin.show(); recapWin.focus(); } });
-  recapWin.on('closed', () => { recapWin = null; recapSnapshot = null; });
+// Popups (match recap, streak broken) are a second HUD-styled overlay docked
+// under the MiniHUD (or above it when there is no room). They never take focus.
+const POPUP_W = 272, POPUP_GAP = 8;
+let popupWin, popupReady = false, popupAbove = false, pendingPopups = [];
+function placePopup(height) {
+  if (!popupWin || popupWin.isDestroyed() || !win) return;
+  const hud = win.getBounds();
+  const { workArea } = screen.getDisplayMatching(hud);
+  const h = Math.max(40, Math.min(workArea.height - 16, Math.ceil(height || popupWin.getBounds().height)));
+  const anchorRight = hud.x + hud.width / 2 > workArea.x + workArea.width / 2;
+  let x = anchorRight ? hud.x + hud.width - POPUP_W : hud.x;
+  x = Math.max(workArea.x + 4, Math.min(workArea.x + workArea.width - POPUP_W - 4, x));
+  popupAbove = hud.y + hud.height + POPUP_GAP + h > workArea.y + workArea.height;
+  const y = popupAbove ? Math.max(workArea.y, hud.y - POPUP_GAP - h) : hud.y + hud.height + POPUP_GAP;
+  popupWin.setBounds({ x, y, width:POPUP_W, height:h });
 }
-ipcMain.on('showRecap', (event, data) => { if (event.sender === win?.webContents) openRecap(data); });
-ipcMain.handle('getRecap', event => event.sender === recapWin?.webContents ? recapSnapshot : null);
-ipcMain.on('closeRecap', event => { if (event.sender === recapWin?.webContents) recapWin.close(); });
+function openPopup(item) {
+  if (popupWin && !popupWin.isDestroyed()) {
+    if (popupReady) popupWin.webContents.send('popup', item); else pendingPopups.push(item);
+    placePopup(); if (!popupWin.isVisible()) popupWin.showInactive();
+    popupWin.setAlwaysOnTop(true, 'screen-saver');
+    return;
+  }
+  pendingPopups = [item]; popupReady = false;
+  popupWin = new BrowserWindow({ width:POPUP_W, height:120, show:false,
+    frame:false, transparent:true, alwaysOnTop:true, resizable:false, focusable:false,
+    skipTaskbar:true, hasShadow:false, title:'Chest Tracker · Popup',
+    webPreferences:{ preload:path.join(__dirname,'preload.js'), contextIsolation:true, nodeIntegration:false } });
+  popupWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen:true });
+  popupWin.loadFile(path.join(__dirname, 'popup.html'));
+  popupWin.once('ready-to-show', () => {
+    if (!popupWin || popupWin.isDestroyed()) return;
+    placePopup(); popupWin.setAlwaysOnTop(true, 'screen-saver'); popupWin.showInactive();
+  });
+  popupWin.on('closed', () => { popupWin = null; popupReady = false; pendingPopups = []; });
+}
+const fromPopup = event => event.sender === popupWin?.webContents;
+ipcMain.on('showPopup', (event, item) => { if (event.sender === win?.webContents && item && typeof item === 'object') openPopup(item); });
+ipcMain.handle('getPopups', event => {
+  if (!fromPopup(event)) return [];
+  popupReady = true; const items = pendingPopups; pendingPopups = []; return items;
+});
+ipcMain.on('popupResize', (event, size) => { if (fromPopup(event)) placePopup(size?.h); });
+ipcMain.on('closePopup', event => { if (fromPopup(event)) popupWin.hide(); });
 let snapshot = null;
 let updateStatus = { state:'checking', message:'Checking for updates…' };
 function openOptions(tab = 'settings') {
@@ -50,7 +75,8 @@ function create() {
     width: W, height: 200,
     x: workArea.x + workArea.width - W - 12, y: workArea.y + 12,
     frame: false, transparent: true, alwaysOnTop: true, resizable: false,
-    skipTaskbar: true, hasShadow: false,
+    // Never take focus: clicking the HUD mid-game must not pull focus from the game.
+    focusable: false, skipTaskbar: true, hasShadow: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), autoplayPolicy:'no-user-gesture-required' }
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -78,6 +104,7 @@ ipcMain.on('resize', (_, size) => {
   const { workArea } = screen.getDisplayMatching(b);
   const anchorRight = b.x + b.width / 2 > workArea.x + workArea.width / 2;
   win.setBounds({ x: anchorRight ? b.x + b.width - w : b.x, y: b.y, width: w, height: h });
+  if (popupWin && !popupWin.isDestroyed() && popupWin.isVisible()) placePopup();
 });
 ipcMain.on('quit', () => app.quit());
 
@@ -106,7 +133,8 @@ const hosted = new HostedConnection({
     lobbySnapshot = data;
     if (optionsWin && !optionsWin.isDestroyed()) optionsWin.webContents.send('lobbies', data);
   },
-  onMatchEnd:data => toUI('matchEnd', data)
+  onMatchEnd:data => toUI('matchEnd', data),
+  onMatchStart:data => toUI('matchStart', data)
 });
 ipcMain.handle('getLobbies', () => { hosted.browse(); return lobbySnapshot; });
 ipcMain.on('browseLobbies', () => hosted.browse());
@@ -115,6 +143,7 @@ ipcMain.on('netHost', () => hosted.create());
 ipcMain.on('netJoin', (_, id) => hosted.join(id));
 ipcMain.on('netLeave', () => hosted.leave());
 ipcMain.on('netEndMatch', () => hosted.endMatch());
+ipcMain.on('netNewMatch', () => hosted.newMatch());
 
 app.whenReady().then(() => {
   create();

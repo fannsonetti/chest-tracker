@@ -30,6 +30,7 @@
   button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .icon { width: 22px; height: 22px; display: grid; place-items: center; color: var(--muted); position: relative; transition: color .12s, background-color .12s; }
   .icon:hover { color: var(--fg); background: var(--fill); }
+  .icon:disabled { opacity: .35; cursor: default; background: none; color: var(--muted); }
   .icon.on { color: var(--fg); background: var(--fill-hi); }
   .icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   .icon .dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); display: none; }
@@ -133,7 +134,7 @@
   .compact #bar { height: 23px; }
   .compact #bar .title { font-size: 11px; }
   .compact #matchNow { display: none; }
-  .compact nav .icon:not([data-view=settings]) { display: none; }
+  .compact nav .icon[data-view]:not([data-view=settings]) { display: none; }
   .compact nav { margin-left: auto; }
   .compact .icon { width: 20px; height: 20px; }
   .compact .icon svg { width: 12px; height: 12px; }
@@ -146,6 +147,13 @@
   .compact #roster { margin-top: 4px; padding-top: 4px; }
   .compact #roster .h, .compact #roster .sum { display: none; }
   .compact #roster .p { height: 19px; font-size: 11px; }
+  #gameEnd { margin-top:7px; padding-top:7px; border-top:1px solid var(--line); animation:reveal .25s ease-out; }
+  #gameEnd .btn { width:100%; height:26px; display:flex; align-items:center; justify-content:center; gap:6px; background:var(--accent); color:#111317; font-weight:600; }
+  #gameEnd .btn:hover { background:#d3dbe6; }
+  #gameEnd .btn svg { width:11px; height:11px; fill:currentColor; }
+  #gameEnd .btn kbd { font:inherit; font-weight:400; font-size:10px; opacity:.65; }
+  #gameEnd .wait { color:var(--muted); font-size:11px; text-align:center; padding:4px 0 1px; }
+  #matchNow.ended { color:var(--accent); }
   #recap { margin-top:6px; padding:9px 2px 2px; border-top:1px solid var(--line); animation:reveal .25s ease-out; }
   #recap h2 { display:flex; align-items:center; gap:5px; font-size:10px; font-weight:500; color:var(--muted); margin:0 0 5px; }
   #recap svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
@@ -199,6 +207,7 @@
       <button class="icon" data-view="party" title="Party link" aria-label="Party link"><svg viewBox="0 0 14 14"><path d="M5.8 8.2l2.4-2.4"/><path d="M6.6 3.9l.9-.9a2.4 2.4 0 0 1 3.5 3.5l-.9.9"/><path d="M7.4 10.1l-.9.9A2.4 2.4 0 0 1 3 7.5l.9-.9"/></svg><span class="dot"></span></button>
       <button class="icon" data-view="history" title="Matches" aria-label="Matches"><svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.25"/><path d="M7 4.4V7l1.8 1.3"/></svg></button>
       <button class="icon" data-view="session" title="Session stats" aria-label="Session stats"><svg viewBox="0 0 14 14"><path d="M2 12h10M3 9V6M7 9V2M11 9V4"/></svg></button>
+      <button class="icon" id="lastGame" title="Last game stats" aria-label="Last game stats" disabled><svg viewBox="0 0 14 14"><path d="M4.5 2.5h5v3a2.5 2.5 0 0 1-5 0z"/><path d="M4.5 3.5H3a1.5 1.5 0 0 0 1.6 2M9.5 3.5H11a1.5 1.5 0 0 1-1.6 2"/><path d="M7 8v2.5M5 11.5h4"/></svg></button>
       <button class="icon" data-view="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 14 14"><path d="M2 4h5.5M11 4h1M2 10h1M6.5 10H12"/><circle cx="9.25" cy="4" r="1.6"/><circle cx="4.75" cy="10" r="1.6"/></svg></button>
     </nav>
   </header>
@@ -207,6 +216,7 @@
   <div id="statHead"></div>
   <div id="rows"></div>
   <div id="notice" role="status" aria-live="polite" hidden></div>
+  <div id="gameEnd" hidden></div>
 
   <section class="view" id="v-party"></section>
   <section class="view" id="v-session">
@@ -246,7 +256,7 @@ const KEYS = [
   { a:'chestDown', label:'Chest −' },
   { a:'teamUp',    label:'Team chest +' },
   { a:'teamDown',  label:'Team chest −' },
-  { a:'match',     label:'End match' },
+  { a:'match',     label:'End / new game' },
   { a:'toggle',    label:'Hide / show' },
 ];
 const DEF = {
@@ -254,7 +264,7 @@ const DEF = {
   show:{ chests:true, teamChests:true, cpm:true, token:true }, hidden:false,
   cur:{ chests:0, teamChests:0, start:Date.now() },
   history:[], name:'', id:'', v:2, compact:true, opacity:88,
-  countMode:'both', recaps:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
+  countMode:'both', recaps:true, streakPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
   keys:{ chestUp:'numadd', chestDown:'numsub', teamUp:'Ctrl+numadd', teamDown:'Ctrl+numsub', match:'F8', toggle:'F9' },
 };
 let s;
@@ -307,6 +317,8 @@ function syncTeamChests(players) {
   for (const id of teammateCounts.keys()) if (!present.has(id)) teammateCounts.delete(id);
   for (const p of players) {
     if (!p.id || p.id === s.id) continue;
+    // A finished game is frozen: only track baselines until the next one starts.
+    if (s.cur.ended) { teammateCounts.set(p.id, { matchStart:p.matchStart, chests:p.chests, credited:0 }); continue; }
     const before = teammateCounts.get(p.id);
     const sameMatch = before && before.matchStart === p.matchStart;
     const credited = sameMatch ? before.credited : 0;
@@ -354,11 +366,12 @@ function paired(personal, team, controls = false) {
 const CROWN = '<svg class="crown" viewBox="0 0 16 16" role="img" aria-label="Match leader"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
 const FIRE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.5 1.5c.8 3-2.8 4.1-2.1 6.4C5 7.4 4.3 6.5 4.2 5.4 2.8 7 2 8.5 2 10a6 6 0 0 0 12 0c0-3-2.4-5.3-5.5-8.5Z"/><path d="M8 9c1.5 1.1 2 2 2 3a2 2 0 0 1-4 0c0-.8.6-1.9 2-3Z"/></svg>';
 function rankedPlayers() {
-  const players = net.players.filter(p => p.id !== s.id);
+  const players = net.players.filter(p => p.id !== s.id).map(p => ({ ...p }));
   const own = net.players.find(p => p.id === s.id);
   players.push({ id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start,
-    streak:players.length ? (own?.streak || 0) : 0,
-    bestStreak:players.length ? (own?.bestStreak || 0) : 0 });
+    streak:players.length ? asStreak(own?.streak || 0) : 0,
+    bestStreak:players.length ? asStreak(own?.bestStreak || 0) : 0 });
+  for (const p of players) p.streak = asStreak(p.streak || 0);
   return players.sort((a, b) => b.chests - a.chests || String(a.id).localeCompare(String(b.id)));
 }
 
@@ -374,6 +387,22 @@ function checkOvertakes(previous, current) {
     $('notice').textContent = passed.map(p => p.name).join(', ') + ' overtook you';
     noticeUntil = Date.now() + 4000;
   }
+}
+// A streak (2+ in a row) is broken when someone else opens a chest.
+// Corrections that shrink a streak and match resets are not breaks.
+function checkStreakBreaks(previous, current) {
+  if (!s.streakPopups || previous.status !== current.status || !['host', 'client'].includes(current.status)) return;
+  const was = previous.players.map(p => ({ ...p, streak:asStreak(p.streak || 0) })).find(p => p.streak > 0);
+  if (!was) return;
+  const now = current.players.find(p => p.id === was.id);
+  if (!now || now.matchStart !== was.matchStart || asStreak(now.streak || 0) > 0) return;
+  const breaker = current.players.find(p => {
+    const before = previous.players.find(q => q.id === p.id);
+    return p.id !== was.id && before && before.matchStart === p.matchStart && p.chests > before.chests;
+  });
+  if (!breaker) return;
+  window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:breaker.name, n:was.streak,
+    mine:was.id === s.id, byMe:breaker.id === s.id, opacity:s.opacity });
 }
 function renderNotice() {
   const el = $('notice'), hidden = s.hidden || Date.now() >= noticeUntil;
@@ -413,14 +442,26 @@ function when(ts) {
 
 // ---------- Rendering ----------
 function renderBar() {
-  $('matchNo').textContent = 'Game ' + (s.matches + 1);
+  $('matchNo').textContent = 'Game ' + (s.cur.ended ? s.matches : s.matches + 1);
   renderClock();
   for (const b of document.querySelectorAll('nav .icon')) b.classList.toggle('on', b.dataset.view === view);
   document.querySelector('[data-view=party]').classList.toggle('linked', net.status === 'host' || net.status === 'client');
 }
 function renderClock() {
-  const seconds = Math.max(0, Math.floor((Date.now() - s.cur.start) / 1000));
-  $('matchNow').textContent = Math.floor(seconds / 60).toString().padStart(2,'0') + ':' + (seconds % 60).toString().padStart(2,'0');
+  const seconds = Math.max(0, Math.floor(((s.cur.ended || Date.now()) - s.cur.start) / 1000));
+  $('matchNow').textContent = Math.floor(seconds / 60).toString().padStart(2,'0') + ':' + (seconds % 60).toString().padStart(2,'0') + (s.cur.ended ? ' · ended' : '');
+  $('matchNow').classList.toggle('ended', !!s.cur.ended);
+}
+const PLAY = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1.5v7l6-3.5z"/></svg>';
+function renderGameEnd() {
+  const el = $('gameEnd'), hide = s.hidden || !s.cur.ended;
+  el.hidden = hide;
+  if (hide) return;
+  el.innerHTML = net.status === 'client' || net.status === 'connecting'
+    ? '<div class="wait">Game over · waiting for the host</div>'
+    : '<button class="btn" id="newGame">' + PLAY + 'New game' + (s.keys.match ? '<kbd>' + esc(prettyKey(s.keys.match)) + '</kbd>' : '') + '</button>';
+  const b = $('newGame');
+  if (b) b.onclick = newGame;
 }
 
 function renderRows() {
@@ -547,7 +588,8 @@ function renderSettings() {
 }
 
 function render() {
-  renderBar(); renderRows(); renderRoster(); renderParty(); renderHistory(); renderSettings(); renderSession(); renderNotice();
+  $('lastGame').disabled = !s.history.length;
+  renderBar(); renderRows(); renderRoster(); renderGameEnd(); renderParty(); renderHistory(); renderSettings(); renderSession(); renderNotice();
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('open', v.id === 'v-' + view);
   // Compact only while no panel is open; panels need the full width.
   const panel = $('panel'), compact = s.compact && !view;
@@ -589,6 +631,10 @@ const soloOpenings = new OpeningStreaks();
 soloOpenings.observe(s.id, s.cur.chests);
 function bump(f, d) {
   if (!['chests','teamChests'].includes(f) || !Number.isFinite(d)) return;
+  if (s.cur.ended) {
+    $('notice').textContent = net.status === 'client' ? 'Game over · waiting for the host' : 'Game over · start a new game to count';
+    noticeUntil = Date.now() + 3000; renderNotice(); return;
+  }
   const available = f === 'chests' ? s.cur.chests : s.cur.teamChests - s.cur.chests;
   d = Math.max(-available, Math.trunc(d));
   if (!d) return;
@@ -601,6 +647,7 @@ function bump(f, d) {
   render();
 }
 function endMatch() {
+  if (s.cur.ended) return newGame();
   if (net.status === 'client' || net.status === 'connecting') return;
   if (net.status === 'host') { window.api.netEndMatch?.(); return; }
   finishMatch();
@@ -609,6 +656,7 @@ let lastMatchId = null;
 function finishMatch(event) {
   if (event && event.id === lastMatchId) return;
   if (event) lastMatchId = event.id;
+  if (s.cur.ended) return;
   const players = event?.players || rankedPlayers();
   const result = recapPlayers(players);
   const own = result.find(p => p.id === s.id);
@@ -622,19 +670,30 @@ function finishMatch(event) {
     ? net.players.filter(p => p.id !== s.id).map(p => ({ name:p.name, chests:p.chests, teamChests:p.teamChests })) : [];
   s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result, recapTeamTotal:event ? result.reduce((n,p)=>n+p.chests,0) : s.cur.teamChests, timeline:event?.timeline || soloOpenings.timeline(), timelineStart:event?.start || s.cur.start });
   if (s.history.length > 300) s.history.splice(0, s.history.length - 300);
-  s.cur = { chests:0, teamChests:0, start:event?.end || Date.now() };
-  if (event) {
-    net.players = net.players.map(p => ({ ...p, chests:0, teamChests:0, matchStart:s.cur.start }));
-    teammateCounts.clear();
-  }
+  // Ending freezes the game; the next one starts only from New game.
+  s.cur.ended = s.history.at(-1).end;
   noticeUntil = 0;
-  resetTeammateCredits();
-  soloOpenings.reset(); soloOpenings.observe(s.id, 0);
   if (s.recaps) showRecap(result, event ? result.reduce((n,p)=>n+p.chests,0) : s.history.at(-1).teamChests, s.history.at(-1));
   render();
 }
 function showRecap(players, teamTotal, match) {
-  window.api.showRecap?.({ ...match, start:match.timelineStart || match.start, recap:players, teamChests:teamTotal });
+  window.api.showPopup?.({ kind:'recap', selfId:s.id, opacity:s.opacity,
+    match:{ ...match, start:match.timelineStart || match.start, recap:players, teamChests:teamTotal } });
+}
+function newGame() {
+  if (!s.cur.ended || net.status === 'client' || net.status === 'connecting') return;
+  // The relay starts a party's next game for everyone; otherwise start locally.
+  if (net.status === 'host' && net.ended) { window.api.netNewMatch?.(); return; }
+  startGame(Date.now());
+}
+function startGame(start) {
+  s.cur = { chests:0, teamChests:0, start };
+  net.players = net.players.map(p => ({ ...p, chests:0, teamChests:0, streak:0, bestStreak:0, matchStart:start }));
+  teammateCounts.clear();
+  resetTeammateCredits();
+  soloOpenings.reset(); soloOpenings.observe(s.id, 0);
+  noticeUntil = 0;
+  render();
 }
 async function applyKeys() { keyOk = await window.api.setKeys(s.keys); render(); }
 
@@ -661,7 +720,11 @@ document.addEventListener('keydown', e => {
 window.addEventListener('blur', () => { if (capturing) stopCapture(); });
 
 $('rows').onclick = e => { const b = e.target.closest('button'); if (b) bump(b.dataset.f, +b.dataset.d); };
-for (const b of document.querySelectorAll('nav .icon')) b.onclick = () => {
+$('lastGame').onclick = () => {
+  const m = s.history.at(-1);
+  if (m) showRecap(m.recap || [], m.recapTeamTotal ?? m.teamChests, m);
+};
+for (const b of document.querySelectorAll('nav .icon[data-view]')) b.onclick = () => {
   if (window.api.openOptions) { window.api.openOptions(b.dataset.view); return; }
   view = view === b.dataset.view ? null : b.dataset.view;
   if (capturing) { capturing = null; window.api.resumeKeys(); }
@@ -691,7 +754,11 @@ window.api.onNet(d => {
   const keepErr = d.error !== undefined ? d.error : '';
   const next = Object.assign({ players:[] }, d, { error: keepErr });
   checkOvertakes(net, next);
+  checkStreakBreaks(net, next);
+  const joinedLive = s.cur.ended && next.status === 'client' && !next.ended;
   net = next;
+  // Joining a game in progress leaves your own finished game behind.
+  if (joinedLive) { startGame(Date.now()); return; }
   if (!['host', 'client'].includes(net.status)) noticeUntil = 0;
   if (net.status === 'host' || net.status === 'client') syncTeamChests(net.players);
   else teammateCounts.clear();
@@ -699,9 +766,10 @@ window.api.onNet(d => {
 });
 
 window.api.onMatchEnd?.(finishMatch);
+window.api.onMatchStart?.(e => { if (s.cur.ended) startGame(e.start); });
 window.api.onConfigure?.(patch => {
   if (['personal', 'team', 'merged', 'both'].includes(patch.countMode)) s.countMode = patch.countMode;
-  for (const key of ['compact', 'recaps', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
+  for (const key of ['compact', 'recaps', 'streakPopups', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
   if (typeof patch.name === 'string') s.name = patch.name.slice(0,20);
 
   if (Number.isFinite(patch.opacity)) s.opacity = Math.max(0, Math.min(100, patch.opacity));
@@ -712,6 +780,7 @@ window.api.onConfigure?.(patch => {
 });
 window.api.onCommand?.(command => {
   if (command === 'endMatch') endMatch();
+  else if (command === 'newGame') newGame();
   else if (command === 'newSession') { session = newSession(); render(); }
   else if (command === 'reset' && net.status === 'off') {
     s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0;

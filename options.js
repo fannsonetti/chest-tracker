@@ -10,7 +10,7 @@ for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => tab(b
 tab(new URLSearchParams(location.search).get('tab'));
 window.api.onOptionsTab(tab);
 const configure = patch => window.api.configure(patch);
-for (const id of ['countMode','compact','opacity','recaps','sound','odds','name']) {
+for (const id of ['countMode','compact','opacity','recaps','streakPopups','sound','odds','name']) {
   const el = $(id);
   el.addEventListener(el.type === 'range' ? 'input':'change', () => {
     const value = el.type === 'checkbox' ? el.checked : ['range','number'].includes(el.type) ? Number(el.value) : el.value;
@@ -33,7 +33,7 @@ function renderLobbies() {
 window.api.onLobbies(data => { lobbies = data; renderLobbies(); });
 window.api.getLobbies().then(data => { lobbies = data; renderLobbies(); });
 $('leave').onclick = () => window.api.netLeave();
-$('endMatch').onclick = () => window.api.command('endMatch');
+$('endMatch').onclick = () => window.api.command(current?.s?.cur?.ended ? 'newGame' : 'endMatch');
 $('newSession').onclick = () => window.api.command('newSession');
 $('quit').onclick = () => window.api.quit();
 $('reset').onclick = () => { if (confirm('Reset counts? Your match history will be kept.')) window.api.command('reset'); };
@@ -42,7 +42,7 @@ function render(data) {
   if (!data?.s) return;
   current = data;
   const { s, net, session, keys, keyOk } = data;
-  for (const id of ['countMode','compact','opacity','recaps','sound','odds','name']) {
+  for (const id of ['countMode','compact','opacity','recaps','streakPopups','sound','odds','name']) {
     const el = $(id);
     if (document.activeElement === el) continue;
     if (el.type === 'checkbox') el.checked = !!s[id]; else el.value = s[id] ?? '';
@@ -72,7 +72,8 @@ function render(data) {
   $('leave').hidden = !linked && !connecting;
   $('reset').disabled = net.status !== 'off';
   $('endMatch').disabled = net.status === 'client' || connecting;
-  $('hostNote').textContent = net.status === 'client' ? 'The host ends the match for everyone.' : 'End the match to show everyone’s recap and start the next match.';
+  $('endMatch').textContent = s.cur?.ended ? 'New game' : 'End match';
+  $('hostNote').textContent = net.status === 'client' ? 'The host ends the match and starts the next one for everyone.' : s.cur?.ended ? 'The match is over. Start a new game when everyone is ready.' : 'End the match to show everyone’s recap. The next game starts when you press New game.';
   $('connection').innerHTML = (net.error ? `<p class="error">${esc(net.error)}</p>` : '') +
     (linked ? `<p>${net.status === 'host' ? 'You are hosting':'Connected'} · Hosted server</p>` : connecting ? '<p>Connecting…</p>' : '<p class="status">Disconnected</p>');
   $('players').innerHTML = linked ? '<table><tr><th>Player</th><th>Opened</th></tr>' + net.players.map(p => `<tr><td>${esc(p.name)}</td><td>${p.chests}</td></tr>`).join('') + '</table>' : '';

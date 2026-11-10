@@ -13,9 +13,10 @@
 <label class="setting"><span>Compact layout</span><input type="checkbox" id="compact"></label>
 <label class="setting"><span>Background opacity <output id="opacityValue"></output></span><input type="range" id="opacity" min="0" max="100" step="5"></label>
 <div id="statToggles"></div>
-<label class="setting"><span>Animated match recaps<small>Honors Windows reduced-motion settings.</small></span><input type="checkbox" id="recaps"></label>
+<label class="setting"><span>Match recap popup<small>Steps through total, chest share, streaks and timeline under the MiniHUD, then hides. Honors Windows reduced-motion settings.</small></span><input type="checkbox" id="recaps"></label>
+<label class="setting"><span>Streak broken popup<small>Shows briefly when someone ends an active streak.</small></span><input type="checkbox" id="streakPopups"></label>
 <label class="setting"><span>Chest click sound<small>Plays when a chest count changes, including global shortcuts.</small></span><input type="checkbox" id="sound"></label><button id="testSound">Test click sound</button>
-<p class="note">Streaks count consecutive openings before another player opens a chest. At least two players must be in the lobby; solo openings never build a streak.</p>
+<p class="note">A streak starts at two consecutive openings before another player opens a chest. At least two players must be in the lobby; solo openings never build a streak.</p>
 </article>
 <article><h2>Global shortcuts</h2><p>Click a binding, then press your shortcut. Escape cancels; Backspace clears.</p><div id="keys"></div><div class="error" id="keyError"></div></article>
 <article><h2>Tracking</h2><label class="setting"><span>Token odds · 1 in</span><input id="odds" type="number" min="1"></label><p class="note">Reset is available while disconnected. Match history is kept.</p><button id="reset">Reset counts</button></article>
