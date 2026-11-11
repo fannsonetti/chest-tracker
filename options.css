@@ -156,7 +156,7 @@ details .recap-meta,details .recap-highlight{text-align:left}
 .stat b{display:block;margin-top:3px;font-size:22px;font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 
 /* Leaderboards */
-.toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;margin-bottom:18px}
+.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:10px;margin-bottom:18px}
 .podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;gap:10px;margin-bottom:14px}
 .place{--medal:var(--silver);position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:18px 12px 0;text-align:center;min-width:0}
 .place .who{max-width:100%;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -212,3 +212,12 @@ details .recap-meta,details .recap-highlight{text-align:left}
 .badge{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10.5px;font-weight:600;background:rgba(255,255,255,.07);color:#bec9d9}
 .badge.streak{color:#c99465;background:rgba(201,148,101,.13)}
 .badge.synced{color:#8f96a3;font-weight:500}
+/* Flame milestones (Your stats): one card per streak colour. */
+.milestones{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:1px;border:1px solid var(--line);border-radius:var(--r);background:var(--line);overflow:hidden}
+.milestone{display:grid;grid-template-columns:22px 1fr;column-gap:10px;align-items:center;padding:14px 16px;background:var(--surface);color:var(--muted);font-size:12px}
+.milestone .fire{grid-row:1/4;width:22px;height:26px;overflow:visible;color:var(--tier);fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 5px var(--tier-glow))}
+.milestone .fire .core path:first-child{fill:color-mix(in srgb,currentColor 16%,transparent)}
+.milestone b{font-size:22px;font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums;line-height:1.15}
+.milestone small{color:var(--faint);font-size:11px}
+.milestone.none .fire{color:var(--faint);filter:none;opacity:.5}
+.milestone.none b{color:var(--faint)}

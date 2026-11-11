@@ -23,10 +23,21 @@
   #bar { position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; height: 28px; -webkit-app-region: drag; }
   /* Your streak timer fills the whole top bar in your flame colour and drains
      to the left as your window runs out. Nobody else's timer is shown. */
+  /* Bright: the full flame colour, a glow, and a white-hot leading edge. The
+     bar's text gets a shadow so it stays readable on top. */
   #streakTimer { position: absolute; left: -10px; right: -10px; top: -4px; bottom: 0; z-index: -1; pointer-events: none;
-    background: color-mix(in srgb, var(--tier) 30%, transparent);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--tier) 55%, transparent), color-mix(in srgb, var(--tier) 90%, transparent));
+    box-shadow: 0 0 12px var(--tier-glow), inset 0 -1px 0 color-mix(in srgb, #fff 35%, transparent);
     transform-origin: left; transition: transform .5s linear; }
-  @media (prefers-reduced-motion: reduce) { #streakTimer { transition: none; } }
+  #streakTimer::after { content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: 3px; background: #fff; box-shadow: 0 0 8px 2px var(--tier-glow), 0 0 3px #fff; }
+  #streakTimer:is(.tier-celestial, .tier-eclipse) { background: repeating-linear-gradient(90deg, #ffb3c4 0, #ffd3ad 40px, #fff0a6 80px, #b8efc6 120px, #aed8ff 160px, #d3bdff 200px, #ffb3c4 240px);
+    background-size: 240px 100%; animation: wave-move-bar 2.4s linear infinite; }
+  @keyframes wave-move-bar { to { background-position: 240px 0; } }
+  /* Supernova: the blazing bar cycles through the spectrum, like its flame. */
+  #streakTimer.tier-supernova { animation: nova-core 3s linear infinite; }
+  #bar:has(#streakTimer:not([hidden])) { text-shadow: 0 1px 2px rgba(0, 0, 0, .75), 0 0 1px rgba(0, 0, 0, .9); }
+  #bar:has(#streakTimer:not([hidden])) #matchNow { color: var(--fg); }
+  @media (prefers-reduced-motion: reduce) { #streakTimer { transition: none; animation: none; } }
   #bar .title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   #matchNo { font-weight: 600; }
   #matchNow { color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
@@ -405,7 +416,7 @@ function rankedPlayers() {
   const own = net.players.find(p => p.id === s.id);
   const party = ['host', 'client'].includes(net.status) && !!own;
   players.push({ ...(party ? own : {}), id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start,
-    bestStreak:players.length ? asStreak(own?.bestStreak || 0) : 0 });
+    bestStreak:party ? asStreak(own?.bestStreak || 0) : soloOpenings.longest(s.id) });
   // Streaks: in a party the relay times everyone's; offline, your own openings do.
   const now = Date.now(), solo = soloOpenings.streakOf(s.id, now);
   for (const p of players) {
@@ -452,9 +463,8 @@ function checkStreakBreaks(previous, current) {
     mine:was.id === s.id, byMe:now.id === s.id, opacity:s.opacity, sound:s.sound });
 }
 // A pill the moment your streak, or the leader's, reaches a new flame colour
-// (10 blue, 25 purple, 50 rainbow). Once per climb: dropping back and climbing
+// (TIER_ORDER in match.js). Once per climb: dropping back and climbing
 // again shows it again. The first look at a player only takes a baseline.
-const TIER_ORDER = ['ember', 'blue', 'purple', 'prism'];
 const tierSeen = new Map();
 function checkTierUps(players) {
   for (const p of players) {
@@ -557,7 +567,9 @@ function renderRoster() {
   const streakCell = p => {
     const mine = p.id === s.id;
     if (!p.streak || !(p.lead || mine)) return mine && !players.some(q => q.lead) ? '<span class="streak" aria-label="No streak">' + FIRE + '<span>0</span></span>' : '<span></span>';
-    return '<span class="streak active tier-' + streakTier(p.streak) + (p.lead ? ' lead' : ' chasing') + '" aria-label="' + (p.lead ? 'Leading' : 'Your') + ' streak: ' + p.streak + '">' +
+    // The roster redraws every 500ms; phasing the flicker by the clock keeps it smooth across redraws.
+    const t = Date.now(), phase = '--ph1:-' + Math.round(t % 1600) + 'ms;--ph2:-' + Math.round(t % 1100) + 'ms';
+    return '<span class="streak active flicker tier-' + streakTier(p.streak) + (p.lead ? ' lead' : ' chasing') + '" style="' + phase + '" aria-label="' + (p.lead ? 'Leading' : 'Your') + ' streak: ' + p.streak + '">' +
       FIRE + '<span class="wave-text" data-text="' + p.streak + '">' + p.streak + '</span></span>';
   };
   const rows = players.map(p => {
@@ -738,12 +750,27 @@ function bump(f, d) {
   checkTierUps(rankedPlayers());
   render();
 }
-// Passing your best counted game shows a gold pill, once per game.
+// Passing the leaderboard's best game for this lobby size (anyone's, from your
+// history and shared results) shows a record pill; passing your own best
+// counted game shows a personal-best pill. Each shows at most once per game,
+// keyed by the game's start so nothing can show it twice, and a record
+// replaces the personal best, since a record is always a personal best too.
 function checkPersonalBest() {
-  if (!s.bestPopups || s.cur.pbShown || s.cur.ended) return;
+  if (!s.bestPopups || s.cur.ended) return;
+  const game = s.cur.start, shown = s.bestShown || (s.bestShown = {});
+  if (shown.record === game) return;
+  const size = ['host', 'client'].includes(net.status) ? Math.max(1, net.players.length) : 1;
+  const board = matchLeaderboards([...s.history, ...s.shared]).find(b => b.size === size);
+  const record = board?.chests[0]?.chests || 0;
+  if (record >= MIN_MATCH_CHESTS && s.cur.chests > record) {
+    shown.record = shown.pb = game;
+    window.api.showPopup?.({ kind:'personalBest', record:true, n:s.cur.chests, best:record, opacity:s.opacity, sound:s.sound });
+    return;
+  }
+  if (shown.pb === game) return;
   const best = Math.max(0, ...s.history.filter(countedMatch).map(m => Number(m.chests) || 0));
   if (best < MIN_MATCH_CHESTS || s.cur.chests <= best) return;
-  s.cur.pbShown = true;
+  shown.pb = game;
   window.api.showPopup?.({ kind:'personalBest', n:s.cur.chests, best, opacity:s.opacity, sound:s.sound });
 }
 function endMatch() {
@@ -949,21 +976,40 @@ window.api.onCommand?.(command => {
   if (command === 'endMatch') endMatch();
   else if (command === 'newGame') newGame();
   else if (command === 'newSession') { session = newSession(); render(); }
+  else if (typeof command === 'string' && command.startsWith('test:')) testPopup(command.slice(5));
   else if (command === 'reset' && net.status === 'off') {
     s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0; s.cpmFrom = Date.now();
     s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); session = newSession(); render();
   }
 });
 
+// Test menu (Num 0 in Settings): shows a popup with made-up numbers, counts nothing.
+function testPopup(kind) {
+  const me = s.name || 'You', base = { opacity:s.opacity, sound:s.sound };
+  const tier = TIER_ORDER.indexOf(kind);
+  if (kind === 'overtaken') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:me, breaker:'Rival', n:12, newN:13, mine:true });
+  else if (kind === 'overtake') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:'Rival', breaker:me, n:24, newN:25, byMe:true });
+  else if (kind === 'expired') { window.api.showPopup?.({ ...base, kind:'streakLost', n:23, tier:'purple' }); if (s.sound) window.playStreakLost?.(); }
+  else if (tier > 0) window.api.showPopup?.({ ...base, kind:'streakTier', name:me, n:TIER_MIN[kind], tier:kind, from:TIER_ORDER[tier - 1], mine:true });
+  else if (kind === 'best') window.api.showPopup?.({ ...base, kind:'personalBest', n:42, best:41 });
+  else if (kind === 'record') window.api.showPopup?.({ ...base, kind:'personalBest', record:true, n:80, best:79 });
+  else if (kind === 'lost') window.playStreakLost?.();
+  else if (kind === 'recap') $('lastGame').onclick();
+}
+
 setInterval(renderSession, 1000);
 setInterval(renderClock, 1000);
 // Streaks run out on their own, so the roster redraws while one is live.
-// Losing your own streak (taken or run out) plays a falling tone. Taking a
-// chest back with a correction does not count, nor does the game ending.
+// Your own streak running out plays a falling tone and a round pill whose
+// flame burns out. Taking a chest back with a correction does not count, nor
+// does the game ending.
 let ownStreak = 0, ownChests = 0;
 setInterval(() => {
   const players = rankedPlayers(), n = players.find(p => p.id === s.id)?.streak || 0;
-  if (ownStreak && !n && !s.cur.ended && s.cur.chests >= ownChests && s.sound) window.playStreakLost?.();
+  if (ownStreak && !n && !s.cur.ended && s.cur.chests >= ownChests) {
+    if (s.sound) window.playStreakLost?.();
+    if (s.streakPopups) window.api.showPopup?.({ kind:'streakLost', n:ownStreak, tier:streakTier(ownStreak), opacity:s.opacity });
+  }
   const changed = n !== ownStreak;
   ownStreak = n; ownChests = s.cur.chests;
   if (!s.hidden && (changed || players.some(p => p.streak))) renderRoster();

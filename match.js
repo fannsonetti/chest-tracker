@@ -4,17 +4,17 @@
 // Streaks: every player runs their own streak at the same time.
 // - Each opening within your window of your previous one adds 1 to your
 //   streak; a longer gap starts you over at 1. MIN_STREAK or more is a streak.
-// - Your window is STREAK_MS (60s) and shrinks as your flame climbs: 45s at
-//   blue, 30s at purple, 20s at white, so long streaks take a steady pace.
-// - Passing the leader's live streak takes the lead, and the passed leader's
-//   streak drops to 0, so they cannot take it straight back. When the
+// - Your window is STREAK_MS (45s) and shrinks with every flame colour
+//   (TIER_MS), so long streaks take real pace.
+// - Passing the leader's live streak takes the lead; the passed leader keeps
+//   their streak and can win the lead back by passing again. When the
 //   leader's streak runs out, the biggest live streak left takes over. Ties
 //   stay with the player who already leads.
 // - A window is set by each opening: becoming leader without opening keeps
 //   the deadline you already had.
-const MIN_STREAK = 2;
+const MIN_STREAK = 3;
 const asStreak = n => n >= MIN_STREAK ? n : 0;
-const STREAK_MS = 60000, TIER_MS = { ember:STREAK_MS, blue:45000, purple:30000, prism:20000 };
+const STREAK_MS = 45000, TIER_MS = { red:STREAK_MS, orange:30000, yellow:22000, blue:18000, purple:15000, celestial:12000, eclipse:10000, supernova:8000 };
 const streakWindow = n => TIER_MS[streakTier(n)];
 // Points: every opening scores POINTS_PER_CHEST, plus 10% per streak level
 // only while you lead, times the lobby size when it was opened (solo 1x up to
@@ -25,10 +25,17 @@ const streakWindow = n => TIER_MS[streakTier(n)];
 const POINTS_PER_CHEST = 0.25;
 // Results signed before 1.2.2 (v1) scored 10 per chest; they count at 1/40.
 const LEGACY_POINT_SCALE = 1 / 40, POINTS_VERSION = 2;
-// Streak colours by length: ember, then blue, purple, and a white flame with a
-// moving pastel rainbow outline.
-const STREAK_TIERS = [[50, 'prism'], [25, 'purple'], [10, 'blue']];
-const streakTier = n => (STREAK_TIERS.find(([min]) => n >= min) || [0, 'ember'])[1];
+// Streak colours by length: red, orange, yellow, blue, purple, then three
+// rare ones: Celestial (a white flame with a moving pastel rainbow outline),
+// Eclipse (a black flame with the same rainbow) and Supernova at 100 (a
+// flame filled with the moving rainbow). TIER_ORDER runs lowest to highest.
+const STREAK_TIERS = [[100, 'supernova'], [75, 'eclipse'], [50, 'celestial'], [40, 'purple'], [30, 'blue'], [20, 'yellow'], [10, 'orange']];
+const TIER_ORDER = ['red', ...STREAK_TIERS.map(t => t[1]).reverse()];
+const TIER_MIN = Object.fromEntries([[MIN_STREAK, 'red'], ...STREAK_TIERS].map(([n, t]) => [t, n]));
+const TIER_LABEL = { red:'Red', orange:'Orange', yellow:'Yellow', blue:'Blue', purple:'Purple', celestial:'Celestial', eclipse:'Eclipse', supernova:'Supernova' };
+// Celestial and Eclipse wear the rainbow outline; Supernova has its own corona (tiers.css).
+const RING_TIERS = ['celestial', 'eclipse'];
+const streakTier = n => (STREAK_TIERS.find(([min]) => n >= min) || [0, 'red'])[1];
 const MAX_MULTIPLIER = 4, AWARD_POINTS = 1;
 const multiplier = size => Math.max(1, Math.min(MAX_MULTIPLIER, Math.floor(size) || 1));
 // `streak` is the opener's streak if they lead after this opening, else 0.
@@ -119,10 +126,7 @@ class OpeningStreaks {
         leader = leaderAt(runs, leader, e.at);
         const run = runs.get(e.id);
         const n = run && run.deadline >= e.at ? run.n + 1 : 1;
-        if (n >= MIN_STREAK && e.id !== leader && (!leader || n > runs.get(leader).n)) {
-          if (leader) runs.set(leader, { n:0, deadline:-Infinity, window:0 });   // passed: back to 0
-          leader = e.id;
-        }
+        if (n >= MIN_STREAK && e.id !== leader && (!leader || n > runs.get(leader).n)) leader = e.id;
         const leading = e.id === leader, window = streakWindow(n, leading);
         runs.set(e.id, { n, deadline:e.at + window, window });
         if (n >= MIN_STREAK) best.set(e.id, Math.max(best.get(e.id) || 0, n));
@@ -156,7 +160,7 @@ class OpeningStreaks {
     const lead = this.leader(now);
     return players.map(p => { const st = this.streakOf(p.id, now);
       return { ...p, streak:st.n, streakLeft:Math.round(st.left), streakWindow:st.window, lead:!!lead && p.id === lead,
-        bestStreak:players.length > 1 ? this.longest(p.id) : 0, points:this.score(p.id) }; });
+        bestStreak:this.longest(p.id), points:this.score(p.id) }; });
   }
   recap(players) {
     const party = players.length > 1;
@@ -187,7 +191,7 @@ class HoldFilter {
   }
 }
 function recapPlayers(players) {
-  return players.map(p=>({ ...p, bestStreak:players.length > 1 ? asStreak(p.bestStreak || 0) : 0 })).sort((a,b)=>b.chests-a.chests || a.name.localeCompare(b.name));
+  return players.map(p=>({ ...p, bestStreak:asStreak(p.bestStreak || 0) })).sort((a,b)=>b.chests-a.chests || a.name.localeCompare(b.name));
 }
 // Points only come from results the relay signed (`verified(match)` returns
 // the signed result, or null), counted once per match id. Unsigned matches
@@ -205,10 +209,13 @@ function matchPoints(match, verified) {
 // Records use the saved roster size; custom lobbies above four stay separate.
 // Each record also carries matches played, total and average chests and total
 // points, over counted games only. Size 0 is every lobby size from one to four.
-function matchLeaderboards(history, verified) {
+// `since` keeps only games that ended after it (weekly / monthly boards).
+// CPM is a player's chests over their played minutes.
+const matchMinutes = m => Math.max(0, (m.end || 0) - (m.timelineStart || m.start || 0)) / 60000;
+function matchLeaderboards(history, verified, since = 0) {
   const seen = new Set();
   history = history.filter(m => {
-    if (!countedMatch(m)) return false;
+    if (!countedMatch(m) || (since && (m.end || 0) <= since)) return false;
     const key = m.proof?.sig;
     if (!key) return true;
     if (seen.has(key)) return false;
@@ -231,19 +238,21 @@ function matchLeaderboards(history, verified) {
       matches++;
       for (const p of players) {
         const id = p.id || p.name;
-        const record = records.get(id) || { id, name:p.name, chests:0, bestStreak:0, matches:0, total:0, avg:0, points:0 };
+        const record = records.get(id) || { id, name:p.name, chests:0, bestStreak:0, matches:0, total:0, avg:0, points:0, minutes:0, cpm:0 };
         const chests = Number(p.chests) || 0;
         record.name = p.name;
         record.chests = Math.max(record.chests, chests);
         record.matches++; record.total += chests;
         record.avg = Math.round(record.total / record.matches * 10) / 10;
+        record.minutes += matchMinutes(match);
+        record.cpm = record.minutes >= 1 ? Math.round(record.total / record.minutes * 100) / 100 : 0;
         record.points += points[i]?.get(id) || 0;
-        if (matchSize > 1) record.bestStreak = Math.max(record.bestStreak, asStreak(Number(p.bestStreak) || 0));
+        record.bestStreak = Math.max(record.bestStreak, asStreak(Number(p.bestStreak) || 0));
         records.set(id, record);
       }
     });
     const rank = metric => [...records.values()].filter(p=>p[metric] > 0).sort((a,b)=>b[metric]-a[metric] || a.name.localeCompare(b.name));
-    return { size, matches, points:rank('points'), chests:rank('chests'), streaks:rank('bestStreak'), avg:rank('avg'), played:rank('matches') };
+    return { size, matches, points:rank('points'), chests:rank('chests'), cpm:rank('cpm'), streaks:rank('bestStreak'), avg:rank('avg'), played:rank('matches') };
   });
 }
 // ---------- Party sync ----------
@@ -314,7 +323,7 @@ function careerStats(history, selfId) {
     const team = Number(match.recapTeamTotal ?? match.teamChests) || chests;
     const minutes = Math.max(0, (match.end || 0) - (match.timelineStart || match.start || 0)) / 60000;
     const top = Math.max(0, ...players.map(p => Number(p.chests) || 0));
-    mine.push({ n:match.n, end:match.end, size, chests, team, minutes, streak:size > 1 ? asStreak(Number(own?.bestStreak) || 0) : 0,
+    mine.push({ n:match.n, end:match.end, size, chests, team, minutes, streak:asStreak(Number(own?.bestStreak) || 0),
       mvp:size > 1 && chests > 0 && chests === top });
   }
   const sum = (list, key) => list.reduce((n, m) => n + m[key], 0);
@@ -326,7 +335,9 @@ function careerStats(history, selfId) {
       streak:Math.max(0, ...list.map(m => m.streak)), mvps:list.filter(m => m.mvp).length,
       share:sum(list, 'team') ? Math.round(sum(list, 'chests') / sum(list, 'team') * 100) : 0 };
   };
-  return { ...summary(mine), modes:[1,2,3,4].map(size => ({ size, ...summary(mine.filter(m => m.size === size)) })), recent:mine.slice(-20) };
+  // How many matches your best streak reached each flame colour.
+  const milestones = TIER_ORDER.map(tier => ({ tier, min:TIER_MIN[tier], matches:mine.filter(m => m.streak >= TIER_MIN[tier]).length }));
+  return { ...summary(mine), modes:[1,2,3,4].map(size => ({ size, ...summary(mine.filter(m => m.size === size)) })), recent:mine.slice(-20), milestones };
 }
 const RECAP_COLORS = ['#f2c265','#8bc9e8','#be9fe8','#8dd4ab','#ef9e99','#d4d78a'];
 function recapDetails(match) {
@@ -341,7 +352,7 @@ function recapDetails(match) {
   let html = '<div class="recap-meta">' + clock(seconds) + ' played · ' + players.length + ' player' + (players.length === 1 ? '' : 's') + '</div>';
   html += '<div class="recap-highlight">' + (players[0]?.chests > 0 ? 'Most opened · ' + escape(players.filter(p=>p.chests===players[0].chests).map(p=>p.name).join(', ')) : 'No chests opened') + '</div>';
   html += players.map((p,i) => '<div class="recap-person" style="--player:' + RECAP_COLORS[i%RECAP_COLORS.length] + ';--delay:' + i*70 + 'ms"><div class="recap-player"><span>' + escape(p.name) + '</span><b>' + p.chests + ' · ' + (total ? Math.round(p.chests/total*100) : 0) + '%</b></div><div class="recap-track"><i style="width:' + Math.min(100,total ? p.chests/total*100 : 0) + '%"></i></div>' + (players.length > 1 ? '<small>Best streak · ' + (p.bestStreak || 0) + '</small>' : '') + '</div>').join('');
-  if (players.length > 1) html += '<div class="recap-highlight">Longest streak · ' + most + (most ? ' · ' + escape(players.filter(p=>p.bestStreak===most).map(p=>p.name).join(', ')) : '') + '</div>';
+  html += '<div class="recap-highlight">Longest streak · ' + most + (most ? ' · ' + escape(players.filter(p=>p.bestStreak===most).map(p=>p.name).join(', ')) : '') + '</div>';
   if (events.length) {
     const max = Math.max(1,...players.map(p=>events.filter(e=>e.id===p.id).reduce((n,e)=>n+e.n,0)));
     html += '<div class="recap-timeline"><b>Opening timeline</b><svg viewBox="0 0 200 80" role="img" aria-label="Cumulative recorded chest openings per player"><path d="M4 4V74H196" fill="none" stroke="#657080" stroke-width=".5"/>';
@@ -364,13 +375,13 @@ function recapDetails(match) {
 // One category per stage, cycled by popup.js. A stage may carry `play` (the
 // replay frames popup.js animates) and `ms` (its own length).
 const FIRE_PATHS = '<path d="M8.5 1.5c.8 3-2.8 4.1-2.1 6.4C5 7.4 4.3 6.5 4.2 5.4 2.8 7 2 8.5 2 10a6 6 0 0 0 12 0c0-3-2.4-5.3-5.5-8.5Z"/><path d="M8 9c1.5 1.1 2 2 2 3a2 2 0 0 1-4 0c0-.8.6-1.9 2-3Z"/>';
-// The ring copy only shows for the prism tier (tiers.css).
+// The ring copy only shows for the rainbow tiers (tiers.css).
 const RECAP_FIRE = '<svg class="fire" viewBox="0 0 16 16" aria-hidden="true"><g class="ring">' + FIRE_PATHS + '</g><g class="core">' + FIRE_PATHS + '</g></svg>';
 const RECAP_CROWN = '<svg class="crown" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
 const RECAP_FLAG = '<svg class="flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.5V2M3.5 2.5h8l-1.8 3 1.8 3h-8"/></svg>';
 const RECAP_FINISH = '<svg class="finish" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.5V2"/><path d="M3.5 2.5h9v6h-9"/><path d="M6.5 2.5v6M9.5 2.5v6M3.5 5.5h9"/></svg>';
 const RECAP_STAR = '<svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>';
-// The moving pastel rainbow the prism tier outlines with. A repeating
+// The moving pastel rainbow the rare tiers outline with. A repeating
 // gradient twice a flame's width shifts by one period per cycle, so about
 // three colours show at once and the band keeps travelling.
 function addRainbowWave(doc) {
@@ -382,7 +393,7 @@ function addRainbowWave(doc) {
     '<animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="32 0" dur="2.4s" repeatCount="indefinite"/></linearGradient></defs></svg>';
   doc.body.appendChild(holder.firstChild);
 }
-// A number that wears the tier's colours; prism needs its text twice.
+// A number that wears the tier's colours; rainbow tiers need their text twice.
 const tierNumber = (n, tier) => '<span class="wave-text" data-text="' + n + '">' + n + '</span>';
 
 // Who earned what in a finished match: first and last chest (party only),
@@ -470,7 +481,7 @@ function recapStages(match, selfId) {
   const cards = [];
   if (highlights.first) cards.push(award(RECAP_FLAG, 'First chest', name(byId.get(highlights.first.id)), highlights.first.at != null ? 'at ' + at(highlights.first.at) : '+' + AWARD_POINTS + ' pt × lobby', 'first', cards.length));
   if (highlights.last) cards.push(award(RECAP_FINISH, 'Last chest', name(byId.get(highlights.last.id)), highlights.last.at != null ? 'at ' + at(highlights.last.at) : '+' + AWARD_POINTS + ' pt × lobby', 'last', cards.length));
-  const bestStreak = squad ? Math.max(0, ...players.map(p => p.bestStreak || 0)) : 0;
+  const bestStreak = Math.max(0, ...players.map(p => p.bestStreak || 0));
   if (bestStreak) cards.push(award('<span class="tier-' + streakTier(bestStreak) + '">' + RECAP_FIRE + '</span>', 'Longest streak', names(players.filter(p => p.bestStreak === bestStreak)), bestStreak + ' in a row', 'streak', cards.length));
   const bestPoints = squad ? Math.max(0, ...players.map(p => Number(p.points) || 0)) : 0;
   if (bestPoints > 0) cards.push(award(RECAP_STAR, 'Most points', names(players.filter(p => (Number(p.points) || 0) === bestPoints)), fmtPoints(bestPoints) + ' points', 'points', cards.length));
@@ -485,8 +496,8 @@ function recapStages(match, selfId) {
         '<span class="track"><i style="width:' + Math.min(100, share) + '%"></i></span></div>';
     }).join('') });
 
-  // 5. Streaks
-  if (squad) {
+  // 5. Streaks (solo games have them too)
+  {
     const ranked = players.map((p,i)=>({ ...p, i })).sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0) || a.name.localeCompare(b.name));
     stages.push({ key:'streaks', label:'Streaks', html: bestStreak
       ? '<div class="hero streak rise tier-' + streakTier(bestStreak) + '" style="--i:0">' + RECAP_FIRE + '<b class="num">' + tierNumber(bestStreak) + '</b><span>in a row<br><em>' + names(players.filter(p=>p.bestStreak===bestStreak)) + '</em></span></div>' +
@@ -528,4 +539,4 @@ function recapStages(match, selfId) {
   }
   return stages;
 }
-if (typeof module !== 'undefined') module.exports = { MIN_STREAK, POINTS_PER_CHEST, STREAK_MS, streakWindow, AWARD_POINTS, openingPoints, LEGACY_POINT_SCALE, POINTS_VERSION, streakTier, MIN_MATCH_MS, MIN_MATCH_CHESTS, countedMatch, matchTeamChests, matchAverages, gameLabel, asStreak, HoldFilter, OpeningStreaks, recapPlayers, recapDetails, recapStages, matchLeaderboards, careerStats, mergeSignedMatches, renumberMatches, proofChunks, signedId, matchHighlights, replayFrames, RECAP_FIRE, addRainbowWave, tierNumber };
+if (typeof module !== 'undefined') module.exports = { MIN_STREAK, POINTS_PER_CHEST, STREAK_MS, streakWindow, TIER_ORDER, TIER_MIN, TIER_LABEL, RING_TIERS, matchMinutes, AWARD_POINTS, openingPoints, LEGACY_POINT_SCALE, POINTS_VERSION, streakTier, MIN_MATCH_MS, MIN_MATCH_CHESTS, countedMatch, matchTeamChests, matchAverages, gameLabel, asStreak, HoldFilter, OpeningStreaks, recapPlayers, recapDetails, recapStages, matchLeaderboards, careerStats, mergeSignedMatches, renumberMatches, proofChunks, signedId, matchHighlights, replayFrames, RECAP_FIRE, addRainbowWave, tierNumber };

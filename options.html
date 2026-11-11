@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Chest Tracker · Options</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
-<link rel="stylesheet" href="recap.css"><link rel="stylesheet" href="options.css"></head><body>
+<link rel="stylesheet" href="recap.css"><link rel="stylesheet" href="options.css"><link rel="stylesheet" href="tiers.css"></head><body>
 <header class="topbar">
   <div class="tb-title"><span id="tbGame">Game 1</span><span id="tbClock"></span></div>
   <div class="tb-controls">
@@ -36,6 +36,25 @@
 <main>
 <section id="settings">
   <header class="page"><div><h1>Overlay</h1><p>How the MiniHUD looks and sounds while you play.</p></div></header>
+  <div id="testMenu" hidden>
+    <h2>Test popups</h2>
+    <p class="lede">Plays the animation only; nothing is counted. Num 0 hides this.</p>
+    <div class="group"><div class="row" id="testButtons" style="flex-wrap:wrap;gap:8px;justify-content:flex-start">
+      <button class="ghost" data-test="overtaken">Someone overtakes you</button>
+      <button class="ghost" data-test="overtake">You overtake someone</button>
+      <button class="ghost" data-test="expired">Your streak runs out</button>
+      <button class="ghost" data-test="orange">Orange · 10</button>
+      <button class="ghost" data-test="yellow">Yellow · 20</button>
+      <button class="ghost" data-test="blue">Blue · 30</button>
+      <button class="ghost" data-test="purple">Purple · 40</button>
+      <button class="ghost" data-test="celestial">Celestial · 50</button>
+      <button class="ghost" data-test="eclipse">Eclipse · 75</button>
+      <button class="ghost" data-test="supernova">Supernova · 100</button>
+      <button class="ghost" data-test="best">Personal best</button>
+      <button class="ghost" data-test="record">Leaderboard record</button>
+      <button class="ghost" data-test="recap">Last match recap</button>
+    </div></div>
+  </div>
   <h2>MiniHUD</h2>
   <div class="group">
     <div class="row"><span>Count display<small>Team and merged totals include your own chests once.</small></span>
@@ -53,7 +72,7 @@
     <label class="row"><span>Personal best<small>A gold pill the moment you pass your best counted game.</small></span><input type="checkbox" class="switch" id="bestPopups"></label>
     <div class="row"><label for="sound">Chest click sound<small>Plays when a count changes, including global shortcuts.</small></label><span class="inline"><button id="testSound" class="ghost">Test</button><input type="checkbox" class="switch" id="sound"></span></div>
   </div>
-  <p class="note">Everyone runs their own streak: open chests within 90s of each other to keep it going. The biggest live streak leads, and the leader only gets 60s between chests, so a lead needs pace. Pass the leader’s streak to take the lead; the leader you pass drops to 0.</p>
+  <p class="note">Everyone runs their own streak: 3 chests in a row, each within 45s of the last, starts a streak. The window shrinks with every flame colour: 30s at orange (10), 22s yellow (20), 18s blue (30), 15s purple (40), 12s Celestial (50), 10s Eclipse (75), 8s Supernova (100). The biggest live streak leads; pass the leader’s streak to take the lead. Being passed keeps your streak, so you can take it back.</p>
   <h2>Global shortcuts</h2>
   <p class="lede">Click a binding, then press the new shortcut. Escape cancels, Backspace clears.</p>
   <div class="group" id="keys"></div>
@@ -89,8 +108,9 @@
 </section>
 
 <section id="leaderboards" hidden>
-  <header class="page"><div><h1>Leaderboards</h1><p>Points and personal bests from matches saved on this device, by lobby size.</p></div></header>
+  <header class="page"><div><h1>Leaderboards</h1><p>Points and personal bests from matches saved on this device, by period and lobby size.</p></div></header>
   <div class="toolbar">
+    <div class="seg" id="boardPeriod" role="radiogroup" aria-label="Period"></div>
     <div class="seg" id="boardMode" role="tablist" aria-label="Lobby size"></div>
     <div class="seg" id="boardMetric" role="radiogroup" aria-label="Ranking"></div>
   </div>

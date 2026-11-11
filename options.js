@@ -2,17 +2,28 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const TABS = ['settings','party','history','session','leaderboards','career'];
 const MODES = ['Solo','Duo','Trio','Squads','All'];
+// Each ranking shows its own value first, then only the numbers that explain it.
 const METRICS = [
-  { key:'points', label:'Points', short:'Points', column:'points', sub:'total points' },
-  { key:'chests', label:'Most chests', short:'Best', column:'chests', sub:'best match' },
-  { key:'streaks', label:'Best streak', short:'Streak', column:'bestStreak', sub:'in a row' },
-  { key:'avg', label:'Average', short:'Avg', column:'avg', sub:'per match' },
-  { key:'played', label:'Matches', short:'Matches', column:'matches', sub:'played' }
+  { key:'points', label:'Points', column:'points', sub:'total points', extra:[['matches','Matches'], ['total','Chests']] },
+  { key:'chests', label:'Most chests', column:'chests', sub:'best match', extra:[['total','Total chests'], ['token','Token chance']] },
+  { key:'cpm', label:'CPM', column:'cpm', sub:'chests per minute', extra:[['total','Total chests'], ['matches','Matches']] },
+  { key:'streaks', label:'Best streak', column:'bestStreak', sub:'in a row', extra:[['matches','Matches']] },
+  { key:'avg', label:'Average', column:'avg', sub:'per match', extra:[['chests','Best'], ['matches','Matches']] },
+  { key:'played', label:'Matches', column:'matches', sub:'played', extra:[['total','Total chests'], ['avg','Avg']] }
 ];
+addRainbowWave(document);
+const COLUMN_LABEL = { points:'Points', chests:'Best', cpm:'CPM', bestStreak:'Streak', avg:'Avg', matches:'Matches' };
+// Weekly and monthly boards count games that ended since the week (Monday) or month began.
+const PERIODS = [['week','This week'], ['month','This month'], ['all','Lifetime']];
+function periodStart(period, now = new Date()) {
+  if (period === 'week') { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.getTime(); }
+  if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  return 0;
+}
 const remember = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const keep = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 let current, capturing = null, keySignature = '', historySignature = '', lobbySignature = '', boardSignature = '', careerSignature = '';
-let boardMode = Number(remember('boardMode', 0)) || 0, boardMetric = remember('boardMetric', 'points');
+let boardMode = Number(remember('boardMode', 0)) || 0, boardMetric = remember('boardMetric', 'points'), boardPeriod = remember('boardPeriod', 'all');
 
 function tab(name) {
   if (!TABS.includes(name)) name = 'settings';
@@ -161,7 +172,7 @@ function awardBadges(m, selfId) {
   const badges = [];
   if (mine(h.first?.id)) badges.push('<span class="badge first">First chest</span>');
   if (mine(h.last?.id)) badges.push('<span class="badge last">Last chest</span>');
-  const streak = (m.recap || []).length > 1 ? Number((m.recap || []).find(p => p.id === selfId)?.bestStreak) || 0 : 0;
+  const streak = Number((m.recap || []).find(p => p.id === selfId)?.bestStreak) || 0;
   if (streak >= MIN_STREAK) badges.push(`<span class="badge streak">Streak ${streak}</span>`);
   if (m.synced) badges.push('<span class="badge synced" title="Filled in from a party member\'s relay-signed result">Synced</span>');
   return badges.length ? `<div class="badges">${badges.join('')}</div>` : '';
@@ -194,20 +205,25 @@ function verifiedResults(history, selfId) {
   return match => proofs.get(proofKey(match.proof)) || null;
 }
 // Points are fractional (0.25 per chest); boards show the nearest whole point.
-const cell = (key, value) => key === 'points' ? Math.round(value).toLocaleString() : value;
+// Token chance is the odds of at least one token across a player's chests.
+const cell = (key, value) => key === 'points' ? Math.round(value).toLocaleString() : key === 'cpm' ? Number(value).toFixed(2) : value;
+const cellFor = (key, p) => key === 'token' ? (100 * (1 - Math.pow(1 - 1 / (current?.s?.odds || 137500), p.total))).toFixed(2) + '%'
+  : key === 'bestStreak' && !p[key] ? '–' : cell(key, p[key]);
 function renderLeaderboards(history, selfId) {
-  const boards = matchLeaderboards(history, verifiedResults(history, selfId));
+  if (!PERIODS.some(([k]) => k === boardPeriod)) boardPeriod = 'all';
+  const boards = matchLeaderboards(history, verifiedResults(history, selfId), periodStart(boardPeriod));
   // Default to the busiest squad size the first time.
   if (!remember('boardMode', null) && boards.some(b => b.matches)) boardMode = boards.reduce((best, b, i) => b.matches > boards[best].matches ? i : best, 0);
   const board = boards[boardMode] || boards[0];
-  const solo = board.size === 1;
-  if (solo && boardMetric === 'streaks') boardMetric = 'chests';
-  const signature = JSON.stringify([boardMode, boardMetric, selfId, boards]);
+
+  const signature = JSON.stringify([boardMode, boardMetric, boardPeriod, selfId, current?.s?.odds, boards]);
   if (signature === boardSignature) return;
   boardSignature = signature;
 
   $('boardMode').innerHTML = boards.map((b, i) => `<button role="tab" data-mode="${i}" aria-selected="${i === boardMode}" class="${i === boardMode ? 'active' : ''}">${MODES[i]}<small>${b.matches}</small></button>`).join('');
-  $('boardMetric').innerHTML = METRICS.map(m => `<button role="radio" data-metric="${m.key}" aria-checked="${m.key === boardMetric}" class="${m.key === boardMetric ? 'active' : ''}"${solo && m.key === 'streaks' ? ' disabled title="Solo lobbies have no streaks"' : ''}>${m.label}</button>`).join('');
+  $('boardMetric').innerHTML = METRICS.map(m => `<button role="radio" data-metric="${m.key}" aria-checked="${m.key === boardMetric}" class="${m.key === boardMetric ? 'active' : ''}">${m.label}</button>`).join('');
+  $('boardPeriod').innerHTML = PERIODS.map(([k, label]) => `<button role="radio" data-period="${k}" aria-checked="${k === boardPeriod}" class="${k === boardPeriod ? 'active' : ''}">${label}</button>`).join('');
+  for (const b of $('boardPeriod').querySelectorAll('button')) b.onclick = () => { boardPeriod = b.dataset.period; keep('boardPeriod', boardPeriod); renderLeaderboards(history, selfId); };
   for (const b of $('boardMode').querySelectorAll('button')) b.onclick = () => { boardMode = Number(b.dataset.mode); keep('boardMode', boardMode); renderLeaderboards(history, selfId); };
   for (const b of $('boardMetric').querySelectorAll('button')) b.onclick = () => { boardMetric = b.dataset.metric; keep('boardMetric', boardMetric); renderLeaderboards(history, selfId); };
 
@@ -217,7 +233,7 @@ function renderLeaderboards(history, selfId) {
   const name = p => esc(p.name) + (p.id === selfId ? '<span class="you">YOU</span>' : '');
   if (!list.length) {
     $('podium').innerHTML = '';
-    $('leaderboardRows').innerHTML = `<div class="group"><div class="empty"><b>No ${MODES[boardMode].toLowerCase()} records yet</b>${board.matches ? 'Nobody has set this record yet.' : board.size ? `Finish a ${board.size}-player match to set one.` : 'Finish a match to set one.'}</div></div>`;
+    $('leaderboardRows').innerHTML = `<div class="group"><div class="empty"><b>No ${MODES[boardMode].toLowerCase()} records yet</b>${board.matches ? 'Nobody has set this record yet.' : boardPeriod !== 'all' ? 'No matches ' + PERIODS.find(([k]) => k === boardPeriod)[1].toLowerCase() + ' yet.' : board.size ? `Finish a ${board.size}-player match to set one.` : 'Finish a match to set one.'}</div></div>`;
     return;
   }
   const place = (p, n) => p
@@ -225,11 +241,11 @@ function renderLeaderboards(history, selfId) {
     : `<div class="place p${n} empty-place"><span class="who">Open spot</span><span class="val">–</span><span class="sub">&nbsp;</span><div class="step">${n}</div></div>`;
   $('podium').innerHTML = `<div class="podium">${place(list[1], 2)}${place(list[0], 1)}${place(list[2], 3)}</div><div class="podium-base"></div>`;
 
-  const columns = [['points','Points'], ['chests','Best'], ...(solo ? [] : [['bestStreak','Streak']]), ['avg','Avg'], ['matches','Matches'], ['total','Total']];
+  const columns = [[metric.column, COLUMN_LABEL[metric.column]], ...metric.extra];
   $('leaderboardRows').innerHTML = '<div class="group"><table class="table board"><tr><th>Player</th>' +
     columns.map(([key, label]) => `<th class="${key === metric.column ? 'sorted' : ''}">${label}</th>`).join('') + '</tr>' +
     list.map(p => { const r = rankOf(p); return `<tr${p.id === selfId ? ' class="me"' : ''}><td><span class="rank r${r}">${r}</span>${name(p)}</td>` +
-      columns.map(([key]) => `<td class="${key === metric.column ? 'sorted' : 'dimmed'}">${key === 'bestStreak' && !p[key] ? '–' : cell(key, p[key])}</td>`).join('') + '</tr>'; }).join('') +
+      columns.map(([key]) => `<td class="${key === metric.column ? 'sorted' : 'dimmed'}">${cellFor(key, p)}</td>`).join('') + '</tr>'; }).join('') +
     '</table></div>';
 }
 
@@ -248,7 +264,7 @@ function renderCareer(history, selfId, s) {
   let html = lifetime + '<h2>Saved matches</h2><div class="summary">' +
     stat('Chests opened', c.chests, `across ${c.matches} match${c.matches === 1 ? '' : 'es'}`, 'lead') +
     stat('Best match', c.best) + stat('Average', c.avg, 'per match') +
-    stat('Best streak', c.streak || '–', 'squad matches') + stat('Per minute', c.perMin || '–') +
+    stat('Best streak', c.streak || '–', 'in a row') + stat('Per minute', c.perMin || '–') +
     stat('Most opened', c.mvps, 'squad matches led') + stat('Team share', c.share + '%', 'of team chests') + '</div>';
 
   const recent = c.recent;
@@ -262,16 +278,24 @@ function renderCareer(history, selfId, s) {
   html += `<h2>Recent form</h2><div class="group"><div class="chart"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Chests in your last ${recent.length} matches">${bars}<path class="avg" d="M0 ${avgY.toFixed(1)}H${w}"/></svg></div>` +
     `<div class="chart-legend"><span>Last ${recent.length} match${recent.length === 1 ? '' : 'es'} · dashed line is the average</span><span><i></i>Chests <i class="gold"></i>Most opened</span></div></div>`;
 
+  // Flame milestones: how many matches your best streak reached each colour.
+  html += '<h2>Flame milestones</h2><div class="milestones">' + c.milestones.map(m =>
+    `<div class="milestone tier-${m.tier}${m.matches ? '' : ' none'}">${RECAP_FIRE}<span>${TIER_LABEL[m.tier]} · ${m.min}+</span><b>${m.matches}</b>` +
+    `<small>${c.matches ? Math.round(m.matches / c.matches * 100) + '% of matches' : 'matches'}</small></div>`).join('') + '</div>';
+
   html += '<h2>By lobby size</h2><div class="group"><table class="table"><tr><th>Mode</th><th>Matches</th><th>Chests</th><th>Best</th><th>Avg</th><th>Streak</th><th>Most opened</th></tr>' +
     c.modes.map(m => `<tr><td>${MODES[m.size - 1]}</td>` + (m.matches
-      ? `<td>${m.matches}</td><td class="num-strong">${m.chests}</td><td>${m.best}</td><td>${m.avg}</td><td>${m.size > 1 ? m.streak || '–' : '–'}</td><td>${m.size > 1 ? m.mvps : '–'}</td>`
+      ? `<td>${m.matches}</td><td class="num-strong">${m.chests}</td><td>${m.best}</td><td>${m.avg}</td><td>${m.streak || '–'}</td><td>${m.size > 1 ? m.mvps : '–'}</td>`
       : '<td class="dimmed" colspan="6">No matches</td>') + '</tr>').join('') + '</table></div>';
   $('careerRows').innerHTML = html;
 }
 
 // ---------- Shortcut capture ----------
 window.addEventListener('blur', cancelCapture);
+// Num 0 on the Settings page toggles the hidden test-popup menu.
+for (const b of document.querySelectorAll('[data-test]')) b.onclick = () => window.api.command('test:' + b.dataset.test);
 document.addEventListener('keydown', e => {
+  if (!capturing && e.code === 'Numpad0' && !$('settings').hidden && !e.target.closest('input')) { $('testMenu').hidden = !$('testMenu').hidden; return; }
   if (!capturing) return;
   e.preventDefault();
   if (e.key === 'Escape') return cancelCapture();

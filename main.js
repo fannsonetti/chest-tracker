@@ -12,18 +12,21 @@ let optionsWin;
 // Popups are a second HUD-styled overlay that never takes focus. A streak
 // popup sits at the top middle of the HUD's screen; a match recap sits in the
 // middle. The popup page reports its kind and content size.
+// STREAK_TOP is where a pill's panel sits; the window starts `pad` above it
+// to leave room for glow and effects (popup.js), never above the screen.
 const POPUP_W = 300, STREAK_TOP = 72;
-let popupWin, popupReady = false, pendingPopups = [], popupKind = 'recap', popupSize = { w:POPUP_W, h:120 };
+let popupWin, popupReady = false, pendingPopups = [], popupKind = 'recap', popupSize = { w:POPUP_W, h:120 }, popupPad = 0;
 const ICON = path.join(__dirname, 'icon.png');
 function placePopup(size) {
   if (!popupWin || popupWin.isDestroyed() || !win) return;
   if (size?.kind) popupKind = size.kind;
   if (Number.isFinite(size?.w) && Number.isFinite(size?.h)) popupSize = { w:size.w, h:size.h };
+  if (size && 'pad' in size) popupPad = Math.max(0, Math.min(200, Number(size.pad) || 0));
   const { workArea } = screen.getDisplayMatching(win.getBounds());
   const w = Math.max(80, Math.min(workArea.width - 16, Math.ceil(popupSize.w)));
   const h = Math.max(40, Math.min(workArea.height - 16, Math.ceil(popupSize.h)));
   const x = Math.round(workArea.x + (workArea.width - w) / 2);
-  const y = popupKind !== 'recap' ? workArea.y + STREAK_TOP : Math.round(workArea.y + (workArea.height - h) / 2);
+  const y = popupKind !== 'recap' ? workArea.y + Math.max(0, STREAK_TOP - popupPad) : Math.round(workArea.y + (workArea.height - h) / 2);
   popupWin.setBounds({ x, y, width:w, height:h });
 }
 function openPopup(item) {

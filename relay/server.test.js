@@ -39,7 +39,7 @@ test('host controls match endings; everyone receives the same recap; host depart
     const alone = await hostMsg('roster');
     assert.equal(alone.players[0].streak,3, 'alone in a room you still see your own streak');
     assert.equal(alone.players[0].lead,true);
-    assert.equal(alone.players[0].bestStreak,0, 'but a solo streak is never saved');
+    assert.equal(alone.players[0].bestStreak,3, 'and it counts as your best');
     send(host,{t:'state',p:{id:'host',name:'Host',chests:3,matchStart:123456789}});
     await hostMsg('roster');
     send(client,{ t:'join',v:2,code:created.code,p:{ id:'friend',name:'Friend',chests:5 } });
@@ -56,15 +56,15 @@ test('host controls match endings; everyone receives the same recap; host depart
     const [a,b] = await Promise.all([hostMsg('matchEnd'),clientMsg('matchEnd')]);
     assert.deepEqual(a,b); assert.deepEqual(a.players.map(p=>p.chests),[8,6]);
     assert.equal(a.players.find(p=>p.id==='host').bestStreak,5); // one opening by Friend does not break the host's streak
-    // Duo points: 0.25 per chest +10% per streak level while leading, x2 (3.2), plus the first
+    // Duo points: 0.25 per chest +10% per streak level while leading (from 3), x2 (3.1), plus the first
     // and last chest awards (2 each); Friend never leads; the corrected solo openings score nothing.
-    assert.deepEqual(a.players.map(p=>p.points),[7.2,0.5]);
+    assert.deepEqual(a.players.map(p=>p.points),[7.1,0.5]);
     assert.deepEqual(a.players.map(p=>[p.first,p.last]),[[true,true],[false,false]]);
     const signed = verifyResult(a.proof, keys.publicKey);
     assert.equal(signed.id,a.id); assert.equal(signed.size,2);
     assert.equal(signed.v,2);
-    assert.deepEqual(signed.players.map(p=>[p.id,p.points,p.first,p.last]),[['host',7.2,true,true],['friend',0.5,false,false]]);
-    assert.equal(verifyResult({ ...a.proof, data:a.proof.data.replace('7.2','99') }, keys.publicKey),null);
+    assert.deepEqual(signed.players.map(p=>[p.id,p.points,p.first,p.last]),[['host',7.1,true,true],['friend',0.5,false,false]]);
+    assert.equal(verifyResult({ ...a.proof, data:a.proof.data.replace('7.1','99') }, keys.publicKey),null);
     assert.equal(verifyResult(a.proof),null, 'a different relay key does not verify');
     const frozen = await clientMsg('roster');
     assert.equal(frozen.ended,true); assert.deepEqual(frozen.players.map(p=>p.chests),[8,6]);
@@ -162,11 +162,11 @@ test('a live streak schedules a roster update for the moment it runs out; leader
     send(friend,{t:'join',v:2,code:created.code,p:{id:'friend',name:'Friend',chests:0,matchStart:1}});
     await friendMsg('roster'); await hostMsg('roster');
     assert.equal(rooms.get(created.code).expiry, undefined, 'no streak, nothing to time');
-    send(friend,{t:'state',p:{id:'friend',name:'Friend',chests:2,matchStart:1}});
+    send(friend,{t:'state',p:{id:'friend',name:'Friend',chests:3,matchStart:1}});
     const roster = await hostMsg('roster');
     const f = roster.players.find(p => p.id === 'friend');
-    assert.equal(f.streak,2); assert.equal(f.lead,true);
-    assert.ok(f.streakLeft > 57000 && f.streakLeft <= 60000, 'the leader has 60s');
+    assert.equal(f.streak,3); assert.equal(f.lead,true);
+    assert.ok(f.streakLeft > 42000 && f.streakLeft <= 45000, 'the leader has 45s');
     assert.equal(roster.players.find(p => p.id === 'host').lead,false);
     assert.ok(rooms.get(created.code).expiry, 'a roster update is scheduled for when it runs out');
   } finally {
