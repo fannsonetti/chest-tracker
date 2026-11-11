@@ -4,9 +4,8 @@
 // Streaks: every player runs their own streak at the same time.
 // - Each opening within your window of your previous one adds 1 to your
 //   streak; a longer gap starts you over at 1. MIN_STREAK or more is a streak.
-// - Everyone's window is STREAK_MS; the leader (the biggest live streak)
-//   always gets the shorter LEADER_MS, so chasers have time to catch up and
-//   the leader cannot take their time once rivals are out of the game.
+// - Your window is STREAK_MS (60s) and shrinks as your flame climbs: 45s at
+//   blue, 30s at purple, 20s at white, so long streaks take a steady pace.
 // - Passing the leader's live streak takes the lead, and the passed leader's
 //   streak drops to 0, so they cannot take it straight back. When the
 //   leader's streak runs out, the biggest live streak left takes over. Ties
@@ -15,8 +14,8 @@
 //   the deadline you already had.
 const MIN_STREAK = 2;
 const asStreak = n => n >= MIN_STREAK ? n : 0;
-const STREAK_MS = 90000, LEADER_MS = 60000;
-const streakWindow = (n, leading) => leading ? LEADER_MS : STREAK_MS;
+const STREAK_MS = 60000, TIER_MS = { ember:STREAK_MS, blue:45000, purple:30000, prism:20000 };
+const streakWindow = n => TIER_MS[streakTier(n)];
 // Points: every opening scores POINTS_PER_CHEST, plus 10% per streak level
 // only while you lead, times the lobby size when it was opened (solo 1x up to
 // squads 4x). Solo games have no streak bonus.
@@ -171,7 +170,7 @@ class OpeningStreaks {
 // one) only fires once no repeat follows it within repeatMs. Holding a key
 // therefore counts once; only separate presses count again.
 class HoldFilter {
-  constructor({ repeatMs = 200, settleMs = 1100, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
+  constructor({ repeatMs = 80, settleMs = 1100, now = Date.now, schedule = setTimeout, cancel = clearTimeout } = {}) {
     Object.assign(this, { repeatMs, settleMs, now, schedule, cancel });
     this.keys = new Map();
   }
@@ -529,4 +528,4 @@ function recapStages(match, selfId) {
   }
   return stages;
 }
-if (typeof module !== 'undefined') module.exports = { MIN_STREAK, POINTS_PER_CHEST, STREAK_MS, LEADER_MS, streakWindow, AWARD_POINTS, openingPoints, LEGACY_POINT_SCALE, POINTS_VERSION, streakTier, MIN_MATCH_MS, MIN_MATCH_CHESTS, countedMatch, matchTeamChests, matchAverages, gameLabel, asStreak, HoldFilter, OpeningStreaks, recapPlayers, recapDetails, recapStages, matchLeaderboards, careerStats, mergeSignedMatches, renumberMatches, proofChunks, signedId, matchHighlights, replayFrames, RECAP_FIRE, addRainbowWave, tierNumber };
+if (typeof module !== 'undefined') module.exports = { MIN_STREAK, POINTS_PER_CHEST, STREAK_MS, streakWindow, AWARD_POINTS, openingPoints, LEGACY_POINT_SCALE, POINTS_VERSION, streakTier, MIN_MATCH_MS, MIN_MATCH_CHESTS, countedMatch, matchTeamChests, matchAverages, gameLabel, asStreak, HoldFilter, OpeningStreaks, recapPlayers, recapDetails, recapStages, matchLeaderboards, careerStats, mergeSignedMatches, renumberMatches, proofChunks, signedId, matchHighlights, replayFrames, RECAP_FIRE, addRainbowWave, tierNumber };

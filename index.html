@@ -20,7 +20,13 @@
   #panel { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px 8px; overflow: hidden; }
 
   /* Header */
-  #bar { display: flex; align-items: center; gap: 6px; height: 28px; -webkit-app-region: drag; }
+  #bar { position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; height: 28px; -webkit-app-region: drag; }
+  /* Your streak timer fills the whole top bar in your flame colour and drains
+     to the left as your window runs out. Nobody else's timer is shown. */
+  #streakTimer { position: absolute; left: -10px; right: -10px; top: -4px; bottom: 0; z-index: -1; pointer-events: none;
+    background: color-mix(in srgb, var(--tier) 30%, transparent);
+    transform-origin: left; transition: transform .5s linear; }
+  @media (prefers-reduced-motion: reduce) { #streakTimer { transition: none; } }
   #bar .title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   #matchNo { font-weight: 600; }
   #matchNow { color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
@@ -179,14 +185,8 @@
   .streak { display:flex; align-items:center; justify-content:flex-end; gap:4px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
   .streak.active { color:var(--tier); }
   .streak svg { overflow:visible; }
-  /* You see your own streak and the leader's. The line under each drains
-     toward the moment it runs out; your own, when not leading, is dimmer. */
-  .streak.timed { position:relative; }
-  .streak.timed::after { content:''; position:absolute; right:0; bottom:-2px; width:30px; height:2px; border-radius:1px; background:currentColor; opacity:.7;
-    transform-origin:right; transform:scaleX(var(--from)); animation:drain var(--left) linear forwards; }
+  /* You see your own streak and the leader's; your own, when not leading, is dimmer. */
   .streak.chasing { opacity:.62; }
-  @keyframes drain { to { transform:scaleX(0); } }
-  @media (prefers-reduced-motion:reduce) { .streak.timed::after { animation:none; } }
 
   .streak svg { width:13px; height:15px; fill:none; stroke:currentColor; stroke-width:1.15; stroke-linecap:round; stroke-linejoin:round; }
   #statHead { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:9px; margin:0 0 4px; }
@@ -212,6 +212,7 @@
 </style><link rel="stylesheet" href="recap.css"><link rel="stylesheet" href="tiers.css"></head>
 <body><div id="panel">
   <header id="bar">
+    <div id="streakTimer" hidden></div>
     <div class="title"><span id="matchNo">Match 1</span><span id="matchNow"></span></div>
     <nav>
       <button class="icon" data-view="party" title="Party link" aria-label="Party link"><svg viewBox="0 0 14 14"><path d="M5.8 8.2l2.4-2.4"/><path d="M6.6 3.9l.9-.9a2.4 2.4 0 0 1 3.5 3.5l-.9.9"/><path d="M7.4 10.1l-.9.9A2.4 2.4 0 0 1 3 7.5l.9-.9"/></svg><span class="dot"></span></button>
@@ -274,7 +275,7 @@ const DEF = {
   cur:{ chests:0, teamChests:0, start:Date.now() },
   // CPM averages counted games in history that ended after cpmFrom (Reset counts).
   cpmFrom:0,
-  history:[], shared:[], name:'', id:'', v:4, compact:true, opacity:88,
+  history:[], shared:[], name:'', id:'', v:5, compact:true, opacity:88,
   countMode:'both', recaps:true, streakPopups:true, bestPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
   keys:{ chestUp:'numadd', chestDown:'numsub', match:'F8', toggle:'F9', options:'F10' },
 };
@@ -304,8 +305,12 @@ try {
   }
   // v4: games under 3 minutes or 5 chests are not kept at all.
   if (!(raw.v >= 4)) { s.history = s.history.filter(countedMatch); s.shared = s.shared.filter(countedMatch); }
+  // v5: games saved before recaps (1.1.x) have no roster and unreliable
+  // teammate counts, so the boards never counted them. Drop them so the HUD,
+  // Your stats and the boards all average the same games.
+  if (!(raw.v >= 5)) { s.history = s.history.filter(m => m.recap?.length); renumberMatches(s); }
   delete s.cpm;
-  s.v = 4;
+  s.v = 5;
 } catch (e) { s = JSON.parse(JSON.stringify(DEF)); }
 if (!s.id) s.id = Math.random().toString(36).slice(2, 10);
 const save = () => { try { localStorage.setItem('s', JSON.stringify(s)); } catch (e) {} };
@@ -544,18 +549,15 @@ function renderRows() {
 function renderRoster() {
   const el = $('roster');
   el.hidden = s.hidden;
-  if (el.hidden) return;
   const players = rankedPlayers(), most = players[0].chests;
+  renderStreakTimer(players.find(p => p.id === s.id));
+  if (el.hidden) return;
   const leaderId = most > 0 ? players[0].id : null;
   // You see your own streak and the leader's; nobody else's.
   const streakCell = p => {
     const mine = p.id === s.id;
     if (!p.streak || !(p.lead || mine)) return mine && !players.some(q => q.lead) ? '<span class="streak" aria-label="No streak">' + FIRE + '<span>0</span></span>' : '<span></span>';
-    const timed = p.streakLeft > 0 && p.streakWindow > 0;
-    const left = Math.ceil(p.streakLeft / 1000);
-    return '<span class="streak active tier-' + streakTier(p.streak) + (p.lead ? ' lead' : ' chasing') + (timed ? ' timed' : '') + '"' +
-      (timed ? ' style="--from:' + Math.min(1, p.streakLeft / p.streakWindow).toFixed(3) + ';--left:' + Math.round(p.streakLeft) + 'ms"' : '') +
-      ' aria-label="' + (p.lead ? 'Leading' : 'Your') + ' streak: ' + p.streak + (timed ? ', ' + left + ' seconds to keep it' : '') + '" title="' + (timed ? 'Open another within ' + left + 's to keep it' : '') + '">' +
+    return '<span class="streak active tier-' + streakTier(p.streak) + (p.lead ? ' lead' : ' chasing') + '" aria-label="' + (p.lead ? 'Leading' : 'Your') + ' streak: ' + p.streak + '">' +
       FIRE + '<span class="wave-text" data-text="' + p.streak + '">' + p.streak + '</span></span>';
   };
   const rows = players.map(p => {
@@ -565,6 +567,15 @@ function renderRoster() {
       '<span class="n">' + esc(p.chests) + '</span>' + streakCell(p) + '</div>';
   });
   el.innerHTML = '<div class="roster-head"><span>SQUAD</span><span>GAME</span><span>STREAK</span></div>' + rows.join('');
+}
+
+function renderStreakTimer(me) {
+  const el = $('streakTimer'), timed = !s.hidden && me?.streak > 0 && me.streakLeft > 0 && me.streakWindow > 0;
+  el.hidden = !timed;
+  if (!timed) return;
+  el.className = 'tier-' + streakTier(me.streak);
+  el.style.transform = 'scaleX(' + Math.min(1, me.streakLeft / me.streakWindow).toFixed(3) + ')';
+  el.title = 'Open another within ' + Math.ceil(me.streakLeft / 1000) + 's to keep your streak';
 }
 
 function sessionStats(now = Date.now()) {
@@ -947,7 +958,16 @@ window.api.onCommand?.(command => {
 setInterval(renderSession, 1000);
 setInterval(renderClock, 1000);
 // Streaks run out on their own, so the roster redraws while one is live.
-setInterval(() => { if (!s.hidden && rankedPlayers().some(p => p.streak)) renderRoster(); }, 500);
+// Losing your own streak (taken or run out) plays a falling tone. Taking a
+// chest back with a correction does not count, nor does the game ending.
+let ownStreak = 0, ownChests = 0;
+setInterval(() => {
+  const players = rankedPlayers(), n = players.find(p => p.id === s.id)?.streak || 0;
+  if (ownStreak && !n && !s.cur.ended && s.cur.chests >= ownChests && s.sound) window.playStreakLost?.();
+  const changed = n !== ownStreak;
+  ownStreak = n; ownChests = s.cur.chests;
+  if (!s.hidden && (changed || players.some(p => p.streak))) renderRoster();
+}, 500);
 setInterval(() => window.api.snapshot?.({ s, net, session:sessionStats(), keys:KEYS, keyOk }), 1000);
 setInterval(renderNotice, 250);
 render();

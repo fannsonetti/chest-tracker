@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Chest Tracker logo: a gold-banded chest on the HUD's dark tile. -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#0c0d10"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#ffffff" stroke-opacity=".08"/>
+  <!-- lid -->
+  <path d="M44 112V100a44 44 0 0 1 44-44h80a44 44 0 0 1 44 44v12z" fill="#8a5a34"/>
+  <path d="M44 112V100a44 44 0 0 1 44-44h80a44 44 0 0 1 44 44v12z" fill="none" stroke="#e6bd67" stroke-width="10" stroke-linejoin="round"/>
+  <!-- body -->
+  <rect x="44" y="112" width="168" height="92" rx="12" fill="#6f4627"/>
+  <rect x="44" y="112" width="168" height="92" rx="12" fill="none" stroke="#e6bd67" stroke-width="10" stroke-linejoin="round"/>
+  <!-- bands -->
+  <path d="M84 60v144M172 60v144" stroke="#e6bd67" stroke-width="10" stroke-linecap="round" opacity=".55"/>
+  <!-- lock -->
+  <rect x="108" y="96" width="40" height="46" rx="9" fill="#e6bd67"/>
+  <circle cx="128" cy="114" r="6" fill="#0c0d10"/>
+  <path d="M128 118v10" stroke="#0c0d10" stroke-width="6" stroke-linecap="round"/>
+</svg>

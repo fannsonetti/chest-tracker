@@ -12,8 +12,9 @@ let optionsWin;
 // Popups are a second HUD-styled overlay that never takes focus. A streak
 // popup sits at the top middle of the HUD's screen; a match recap sits in the
 // middle. The popup page reports its kind and content size.
-const POPUP_W = 300, STREAK_TOP = 28;
+const POPUP_W = 300, STREAK_TOP = 72;
 let popupWin, popupReady = false, pendingPopups = [], popupKind = 'recap', popupSize = { w:POPUP_W, h:120 };
+const ICON = path.join(__dirname, 'icon.png');
 function placePopup(size) {
   if (!popupWin || popupWin.isDestroyed() || !win) return;
   if (size?.kind) popupKind = size.kind;
@@ -33,7 +34,7 @@ function openPopup(item) {
     return;
   }
   pendingPopups = [item]; popupReady = false; popupKind = item.kind;
-  popupWin = new BrowserWindow({ width:POPUP_W, height:120, show:false,
+  popupWin = new BrowserWindow({ icon:ICON, width:POPUP_W, height:120, show:false,
     frame:false, transparent:true, alwaysOnTop:true, resizable:false, focusable:false,
     skipTaskbar:true, hasShadow:false, title:'Chest Tracker · Popup',
     // Keep timers running while hidden, so a popup queued behind another one
@@ -66,7 +67,7 @@ let updateStatus = { state:'checking', message:'Checking for updates…' };
 // closed, so opening it is instant instead of a fresh page load each time.
 function buildOptions(tab = 'settings') {
   // Frameless: options.html draws its own MiniHUD-style top bar.
-  optionsWin = new BrowserWindow({ width:900, height:760, minWidth:680, minHeight:560, show:false, frame:false,
+  optionsWin = new BrowserWindow({ icon:ICON, width:900, height:760, minWidth:680, minHeight:560, show:false, frame:false,
     title:'Chest Tracker · Options', backgroundColor:'#0c0d10', autoHideMenuBar:true,
     webPreferences:{ preload:path.join(__dirname, 'preload.js'), contextIsolation:true, nodeIntegration:false, spellcheck:false, autoplayPolicy:'no-user-gesture-required' } });
   optionsWin.loadFile(path.join(__dirname, 'options.html'), { query:{ tab } });
@@ -110,7 +111,7 @@ ipcMain.on('command', (_, data) => toUI('command', data));
 function create() {
   const { workArea } = screen.getPrimaryDisplay();
   win = new BrowserWindow({
-    width: W, height: 200,
+    icon: ICON, width: W, height: 200,
     x: workArea.x + workArea.width - W - 12, y: workArea.y + 12,
     frame: false, transparent: true, alwaysOnTop: true, resizable: false, show: false,
     // Never take focus: clicking the HUD mid-game must not pull focus from the game.

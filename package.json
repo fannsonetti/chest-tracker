@@ -25,6 +25,7 @@
       "popup.js",
       "sound.js",
       "click.wav",
+      "icon.png",
       "hosted-connection.js",
       "proof.js",
       "updater.js",
@@ -36,6 +37,7 @@
       "output": "dist"
     },
     "win": {
+      "icon": "icon.png",
       "target": [
         "nsis"
       ],

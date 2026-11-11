@@ -68,28 +68,6 @@ function bestSound() {
   } catch (error) { console.warn('Could not play best sound:', error.message); }
 }
 
-// A soft, short falling tone when your own streak is lost.
-function lossSound() {
-  try {
-    const ctx = new AudioContext(), t = ctx.currentTime;
-    const out = ctx.createGain(); out.gain.value = 0.9;
-    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 1600;
-    filter.connect(out); out.connect(ctx.destination);
-    [[523, 262, 0.07, 'sine'], [784, 392, 0.025, 'triangle']].forEach(([from, to, level, type]) => {
-      const osc = ctx.createOscillator(), gain = ctx.createGain();
-      osc.type = type;
-      osc.frequency.setValueAtTime(from, t + 0.28);
-      osc.frequency.exponentialRampToValueAtTime(to, t + 0.72);
-      gain.gain.setValueAtTime(0.0001, t + 0.28);
-      gain.gain.exponentialRampToValueAtTime(level, t + 0.31);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
-      osc.connect(gain); gain.connect(filter);
-      osc.start(t + 0.28); osc.stop(t + 0.85);
-    });
-    setTimeout(() => ctx.close(), 1200);
-  } catch (error) { console.warn('Could not play streak sound:', error.message); }
-}
-
 // ---------- Stage animation ----------
 const easeOut = x => 1 - Math.pow(1 - x, 3);
 const clock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -174,8 +152,7 @@ function show(item) {
     stages = [bestStage(item)];
     if (item.sound !== false) bestSound();
   } else {
-    stages = [brokenStage(item)];
-    if (item.mine && item.sound !== false) lossSound();
+    stages = [brokenStage(item)];   // the HUD plays the lost-streak sound
   }
   const pill = item.kind !== 'recap';
   panel.classList.toggle('pill-kind', pill);
@@ -250,9 +227,12 @@ panel.addEventListener('mouseenter', () => {
   clearTimeout(timer); remaining = Math.max(0, remaining - (Date.now() - startedAt));
 });
 panel.addEventListener('mouseleave', () => { hovering = false; panel.classList.remove('paused'); if (current) run(); });
-// A left click on the popup dismisses it (and anything queued behind it);
-// the progress segments jump to their stage instead.
-panel.addEventListener('click', () => { if (current) { queue = []; finish(); } });
+// A left click skips to the next page; on the last page it dismisses the
+// popup (and anything queued behind it). The progress segments jump instead.
+panel.addEventListener('click', () => { if (!current) return; if (index + 1 < stages.length) go(index + 1); else { queue = []; finish(); } });
+
+// The X always closes, whatever page the recap is on.
+$('close').addEventListener('click', e => { e.stopPropagation(); if (current) { queue = []; finish(); } });
 
 window.api.onPopup(receive);
 window.api.getPopups().then(items => { for (const item of items || []) receive(item); });

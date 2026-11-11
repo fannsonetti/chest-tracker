@@ -310,10 +310,11 @@ test('after the recap finishes the HUD shows the next game at zero', () => {
 
 test('upgrading renumbers saved games and derives the game counter from them', () => {
   const store = JSON.stringify({ v:2, matches:26, chests:1, history:[
-    { n:1, start:0, end:600000, chests:20, teamChests:20 },
-    { n:2, start:0, end:60000, chests:30, teamChests:30 },
-    { n:3, start:0, end:600000, chests:3, teamChests:3 },
-    { n:4, start:0, end:600000, chests:22, teamChests:22 }] });
+    { n:1, start:0, end:600000, chests:20, teamChests:20, recap:[{ id:'me', name:'Me', chests:20 }] },
+    { n:2, start:0, end:60000, chests:30, teamChests:30, recap:[{ id:'me', name:'Me', chests:30 }] },
+    { n:3, start:0, end:600000, chests:3, teamChests:3, recap:[{ id:'me', name:'Me', chests:3 }] },
+    { n:4, start:0, end:600000, chests:9, teamChests:40 },
+    { n:5, start:0, end:600000, chests:22, teamChests:22, recap:[{ id:'me', name:'Me', chests:22 }] }] });
   const context = vm.createContext({
     window:{ api:{ onAction() {}, onNet() {}, netState() {} }, addEventListener() {} },
     document:{ getElementById() { return { hidden:true, style:{ setProperty() {} }, classList:{ toggle() {} } }; }, querySelectorAll() { return []; }, querySelector() { return { classList:{ toggle() {} } }; }, addEventListener() {} },
@@ -322,7 +323,7 @@ test('upgrading renumbers saved games and derives the game counter from them', (
   vm.runInContext(fs.readFileSync('match.js', 'utf8'), context);
   vm.runInContext(source.replace(/render\(\);\s*applyKeys\(\);\s*$/, '') + '\nrender = () => {};', context);
   assert.equal(vm.runInContext('s.matches', context),2);
-  assert.equal(vm.runInContext('JSON.stringify(s.history.map(m => m.n))', context),'[1,2]', 'short games are removed');
+  assert.equal(vm.runInContext('JSON.stringify(s.history.map(m => m.n))', context),'[1,2]', 'short and pre-recap games are removed');
   assert.equal(vm.runInContext('matchAverages(s.history).own', context),21);
 });
 
@@ -353,17 +354,18 @@ test('meeting someone new in a room sends them our signed results once', () => {
 });
 
 
-test('offline your own streak shows with its timer; a solo game saves no streak', () => {
+test('offline your own streak shows, with its timer across the top bar; a solo game saves no streak', () => {
   const t = tracker();
   t.run("bump('chests',1); bump('chests',1); bump('chests',1); renderRoster()");
   assert.equal(t.run('rankedPlayers()[0].streak'),3);
-  assert.ok(t.run("$('roster').innerHTML.includes('streak active tier-ember lead timed')"));
+  assert.ok(t.run("$('roster').innerHTML.includes('streak active tier-ember lead')"));
+  assert.equal(t.run("$('streakTimer').hidden"),false);
   t.run('s.cur.start = Date.now() - 200000; bump("chests", 2); finishMatch()');
   assert.equal(t.run('s.history[0].recap[0].bestStreak'),0);
   assert.equal(t.run('rankedPlayers()[0].streak'),0, 'no streak once the game is over');
 });
 
-test('in a party you see your own streak and the leader, with their time left', () => {
+test('in a party you see your own streak and the leader, and only your own timer', () => {
   const t = tracker();
   const id = t.run('s.id');
   const third = { id:'third', name:'Third', chests:0, matchStart:100 };
@@ -371,7 +373,8 @@ test('in a party you see your own streak and the leader, with their time left', 
     { id, name:'You', chests:2, matchStart:100, streak:2, streakLeft:44000, streakWindow:45000, lead:false }]);
   t.run('renderRoster()');
   const html = t.run("$('roster').innerHTML");
-  assert.ok(html.includes('Leading streak: 4, 30 seconds to keep it'));
+  assert.ok(html.includes('Leading streak: 4"'), "the leader's timer is not shown");
+  assert.match(t.run("$('streakTimer').title"),/within 44s/);
   assert.ok(html.includes('Your streak: 2'));
   assert.ok(!html.includes('streak: 3'), "a third player's streak stays hidden");
   assert.equal(t.run("($('roster').innerHTML.match(/class=\"streak active/g)||[]).length"),2);

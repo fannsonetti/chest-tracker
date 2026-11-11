@@ -195,28 +195,24 @@ test('everyone runs their own streak at once; a gap past the window starts you o
   open(s,'b',sec(5)); open(s,'b',sec(15));          // b: 2 at the same time, ties stay with a
   assert.equal(s.current('a',sec(16)),2); assert.equal(s.current('b',sec(16)),2);
   assert.equal(s.leader(sec(16)),'a');
-  assert.equal(s.leader(sec(99)),'b', "a's 60s ran out at 70s; b's 90s runs to 105s");
-  open(s,'a',sec(100));
-  assert.equal(s.current('a',sec(100)),0, 'a starts over at 1');
-  assert.equal(s.current('b',sec(100)),2);
-  assert.equal(s.current('b',sec(106)),0, 'b ran out at 105s');
-  assert.equal(s.leader(sec(106)),null);
+  assert.equal(s.leader(sec(72)),'b', "a's 60s ran out at 70s; b's runs to 75s");
+  open(s,'a',sec(73));
+  assert.equal(s.current('a',sec(73)),0, 'a starts over at 1');
+  assert.equal(s.current('b',sec(73)),2);
+  assert.equal(s.current('b',sec(76)),0, 'b ran out at 75s');
+  assert.equal(s.leader(sec(76)),null);
   assert.equal(s.longest('a'),2); assert.equal(s.longest('b'),2);
 });
 
-test('the leader always has 60s between chests; everyone else has 90s', () => {
+test('the streak window is 60s and shrinks at blue, purple and white', () => {
   const { streakWindow } = require('./match');
-  assert.deepEqual([[2,false],[40,false],[2,true],[10,true],[80,true]].map(([n, lead]) => streakWindow(n, lead) / 1000),[90,90,60,60,60]);
+  assert.deepEqual([2,9,10,24,25,49,50,80].map(n => streakWindow(n) / 1000),[60,60,45,45,30,30,20,20]);
   const steady = duo();
-  for (let i = 0; i < 30; i++) open(steady,'a',sec(i * 59));   // a chest every 59s keeps a lead going
-  assert.equal(steady.longest('a'),30);
+  for (let i = 0; i < 12; i++) open(steady,'a',sec(i * 44));   // 44s gaps hold through blue
+  assert.equal(steady.longest('a'),12);
   const slow = duo();
-  for (let i = 0; i < 30; i++) open(slow,'a',sec(i * 61));     // 61s gaps: fine at 1, but a leader at 2 gets only 60s
-  assert.equal(slow.longest('a'),2);
-  const chase = duo();
-  for (let i = 0; i < 12; i++) open(chase,'a',sec(i * 50));    // a leads with 50s gaps
-  for (let i = 0; i < 6; i++) open(chase,'b',sec(5 + i * 80)); // b trails with 80s gaps, inside its 90s
-  assert.equal(chase.current('b',sec(405)),6); assert.equal(chase.leader(sec(405)),'a');
+  for (let i = 0; i < 30; i++) open(slow,'a',sec(i * 50));     // 50s gaps: fine below 10, too slow at blue
+  assert.equal(slow.longest('a'),10);
 });
 
 test('passing the leader drops them to 0, so they cannot take it straight back', () => {
