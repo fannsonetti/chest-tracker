@@ -22,7 +22,7 @@ function placePopup(size) {
   const w = Math.max(80, Math.min(workArea.width - 16, Math.ceil(popupSize.w)));
   const h = Math.max(40, Math.min(workArea.height - 16, Math.ceil(popupSize.h)));
   const x = Math.round(workArea.x + (workArea.width - w) / 2);
-  const y = popupKind === 'streakBroken' ? workArea.y + STREAK_TOP : Math.round(workArea.y + (workArea.height - h) / 2);
+  const y = popupKind !== 'recap' ? workArea.y + STREAK_TOP : Math.round(workArea.y + (workArea.height - h) / 2);
   popupWin.setBounds({ x, y, width:w, height:h });
 }
 function openPopup(item) {
@@ -54,10 +54,12 @@ ipcMain.on('popupResize', (event, size) => {
   placePopup(size);
   // The streak pill shows mid-game: let the mouse pass through it so hovering
   // never pulls focus from the game. Recaps show after a game and stay clickable.
-  popupWin.setIgnoreMouseEvents(popupKind === 'streakBroken');
+  popupWin.setIgnoreMouseEvents(popupKind !== 'recap');
   if (!popupWin.isVisible()) { popupWin.setAlwaysOnTop(true, 'screen-saver'); popupWin.showInactive(); }
 });
 ipcMain.on('closePopup', event => { if (fromPopup(event)) popupWin.hide(); });
+// The HUD zeroes the ended game once its recap has finished showing.
+ipcMain.on('recapDone', event => { if (fromPopup(event)) toUI('recapDone'); });
 let snapshot = null;
 let updateStatus = { state:'checking', message:'Checking for updates…' };
 // The options window is built hidden shortly after boot and only hidden when
@@ -180,7 +182,8 @@ const makeHosted = () => new (require('./hosted-connection').HostedConnection)({
     if (optionsWin && !optionsWin.isDestroyed()) optionsWin.webContents.send('lobbies', data);
   },
   onMatchEnd:data => toUI('matchEnd', data),
-  onMatchStart:data => toUI('matchStart', data)
+  onMatchStart:data => toUI('matchStart', data),
+  onShared:data => toUI('shared', data)
 });
 // Leaderboard points only count relay-signed results; returns each signed
 // result, or null where the signature does not check out.
@@ -193,6 +196,7 @@ ipcMain.on('netJoin', (_, id) => hosted.join(id));
 ipcMain.on('netLeave', () => hosted.leave());
 ipcMain.on('netEndMatch', () => hosted.endMatch());
 ipcMain.on('netNewMatch', (_, opened) => hosted.newMatch(opened === true));
+ipcMain.on('netShare', (_, proofs) => hosted.share(proofs));
 
 app.whenReady().then(() => {
   create();

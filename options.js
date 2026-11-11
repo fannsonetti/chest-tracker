@@ -34,15 +34,16 @@ $('tbClose').onclick = () => window.api.optionsWindow?.('close');
 function renderTopbar() {
   const s = current?.s;
   if (!s?.cur) return;
-  $('tbGame').textContent = 'Game ' + (s.cur.ended ? s.matches : s.matches + 1);
-  const seconds = Math.max(0, Math.floor(((s.cur.ended || Date.now()) - s.cur.start) / 1000));
-  $('tbClock').textContent = String(Math.floor(seconds / 60)).padStart(2,'0') + ':' + String(seconds % 60).padStart(2,'0') + (s.cur.ended ? ' · ended' : '');
+  const cleared = s.cur.ended && s.cur.cleared;
+  $('tbGame').textContent = gameLabel(s);
+  const seconds = cleared ? 0 : Math.max(0, Math.floor(((s.cur.ended || Date.now()) - s.cur.start) / 1000));
+  $('tbClock').textContent = String(Math.floor(seconds / 60)).padStart(2,'0') + ':' + String(seconds % 60).padStart(2,'0') + (cleared ? ' · ready' : s.cur.ended ? ' · ended' : '');
   $('tbClock').classList.toggle('ended', !!s.cur.ended);
 }
 setInterval(renderTopbar, 1000);
 
 const configure = patch => window.api.configure(patch);
-for (const id of ['compact','opacity','recaps','streakPopups','sound','odds','name']) {
+for (const id of ['compact','opacity','recaps','streakPopups','bestPopups','sound','odds','name']) {
   const el = $(id);
   el.addEventListener(el.type === 'range' ? 'input':'change', () => {
     const value = el.type === 'checkbox' ? el.checked : ['range','number'].includes(el.type) ? Number(el.value) : el.value;
@@ -93,7 +94,7 @@ function render(data) {
   if (!data?.s) return;
   current = data;
   const { s, net, session, keys, keyOk } = data;
-  for (const id of ['compact','opacity','recaps','streakPopups','sound','odds','name']) {
+  for (const id of ['compact','opacity','recaps','streakPopups','bestPopups','sound','odds','name']) {
     const el = $(id);
     if (document.activeElement === el) continue;
     if (el.type === 'checkbox') el.checked = !!s[id]; else el.value = s[id] ?? '';
@@ -104,7 +105,7 @@ function render(data) {
   }
   $('opacityValue').textContent = `${s.opacity}%`;
   if (!$('statToggles').children.length) {
-    for (const [key, label, hint] of [['chests','CTG','Chests this game, personal and team.'],['cpm','CPM','Chests per match. Matches under 5 chests are skipped.'],['token','Token chance','Shared chance of a token, from the odds below.']]) {
+    for (const [key, label, hint] of [['chests','CTG','Chests this game, personal and team.'],['cpm','CPM','Chests per match, over games of 3+ minutes and 5+ chests.'],['token','Token chance','Shared chance of a token, from the odds below.']]) {
       const row = document.createElement('label'); row.className = 'row';
       row.innerHTML = `<span>Show ${esc(label)}<small>${esc(hint)}</small></span><input type="checkbox" class="switch" data-stat="${key}">`;
       row.lastChild.onchange = e => configure({ show:{ [key]:e.target.checked } });
@@ -142,16 +143,28 @@ function render(data) {
   if (history !== historySignature) {
     historySignature = history; boardSignature = '';
     $('historyRows').innerHTML = s.history.length ? '<div class="group"><table class="table history"><tr><th>Match</th><th>Players</th><th>You</th><th>Team</th><th>Recap</th></tr>' +
-      s.history.slice().reverse().map(m => `<tr><td class="num-strong">#${m.n}<div class="dimmed">${esc(when(m.end))}</div></td><td class="dimmed">${(m.recap || []).length || 1}</td><td class="num-strong">${m.chests}</td><td>${m.teamChests}</td><td><details><summary>View full recap</summary>${recapDetails({ ...m, start:m.timelineStart || m.start, teamChests:m.recapTeamTotal ?? m.teamChests })}</details></td></tr>`).join('') + '</table></div>'
+      s.history.filter(countedMatch).reverse().map(m => `<tr><td class="num-strong">#${m.n}<div class="dimmed">${esc(when(m.end))}</div></td><td class="dimmed">${(m.recap || []).length || 1}</td><td class="num-strong">${m.chests}</td><td>${m.teamChests}</td><td>${awardBadges(m, s.id)}<details><summary>View full recap</summary>${recapDetails({ ...m, start:m.timelineStart || m.start, teamChests:m.recapTeamTotal ?? m.teamChests })}</details></td></tr>`).join('') + '</table></div>'
       : '<div class="group"><div class="empty"><b>No completed matches yet</b>End a match with F8 and it shows up here.</div></div>';
   }
   // Lifetime counts change with every chest, so Your stats has its own signature.
   const career = JSON.stringify([history, s.chests, s.teamChests]);
   if (career !== careerSignature) { careerSignature = career; renderCareer(s.history, s.id, s); }
-  renderLeaderboards(s.history, s.id);
+  // Leaderboards also read games your party shared that you were not in.
+  renderLeaderboards(s.history.concat(s.shared || []), s.id);
   renderTopbar();
   renderUpdate(data.update);
   if (data.version) $('version').textContent = `Version ${data.version}`;
+}
+// Your awards in a saved game: first or last chest, and your best streak.
+function awardBadges(m, selfId) {
+  const h = matchHighlights(m), mine = id => id && id === selfId;
+  const badges = [];
+  if (mine(h.first?.id)) badges.push('<span class="badge first">First chest</span>');
+  if (mine(h.last?.id)) badges.push('<span class="badge last">Last chest</span>');
+  const streak = (m.recap || []).length > 1 ? Number((m.recap || []).find(p => p.id === selfId)?.bestStreak) || 0 : 0;
+  if (streak >= MIN_STREAK) badges.push(`<span class="badge streak">Streak ${streak}</span>`);
+  if (m.synced) badges.push('<span class="badge synced" title="Filled in from a party member\'s relay-signed result">Synced</span>');
+  return badges.length ? `<div class="badges">${badges.join('')}</div>` : '';
 }
 function when(ts) {
   if (!ts) return '';
@@ -180,6 +193,8 @@ function verifiedResults(history, selfId) {
   }
   return match => proofs.get(proofKey(match.proof)) || null;
 }
+// Points are fractional (0.25 per chest); boards show the nearest whole point.
+const cell = (key, value) => key === 'points' ? Math.round(value).toLocaleString() : value;
 function renderLeaderboards(history, selfId) {
   const boards = matchLeaderboards(history, verifiedResults(history, selfId));
   // Default to the busiest squad size the first time.
@@ -206,7 +221,7 @@ function renderLeaderboards(history, selfId) {
     return;
   }
   const place = (p, n) => p
-    ? `<div class="place p${n}">${n === 1 ? CROWN : ''}<span class="who">${esc(p.id === selfId ? 'You' : p.name)}</span><span class="val">${p[metric.column]}</span><span class="sub">${metric.sub}</span><div class="step">${n}</div></div>`
+    ? `<div class="place p${n}">${n === 1 ? CROWN : ''}<span class="who">${esc(p.id === selfId ? 'You' : p.name)}</span><span class="val">${cell(metric.column, p[metric.column])}</span><span class="sub">${metric.sub}</span><div class="step">${n}</div></div>`
     : `<div class="place p${n} empty-place"><span class="who">Open spot</span><span class="val">–</span><span class="sub">&nbsp;</span><div class="step">${n}</div></div>`;
   $('podium').innerHTML = `<div class="podium">${place(list[1], 2)}${place(list[0], 1)}${place(list[2], 3)}</div><div class="podium-base"></div>`;
 
@@ -214,7 +229,7 @@ function renderLeaderboards(history, selfId) {
   $('leaderboardRows').innerHTML = '<div class="group"><table class="table board"><tr><th>Player</th>' +
     columns.map(([key, label]) => `<th class="${key === metric.column ? 'sorted' : ''}">${label}</th>`).join('') + '</tr>' +
     list.map(p => { const r = rankOf(p); return `<tr${p.id === selfId ? ' class="me"' : ''}><td><span class="rank r${r}">${r}</span>${name(p)}</td>` +
-      columns.map(([key]) => `<td class="${key === metric.column ? 'sorted' : 'dimmed'}">${key === 'bestStreak' && !p[key] ? '–' : p[key]}</td>`).join('') + '</tr>'; }).join('') +
+      columns.map(([key]) => `<td class="${key === metric.column ? 'sorted' : 'dimmed'}">${key === 'bestStreak' && !p[key] ? '–' : cell(key, p[key])}</td>`).join('') + '</tr>'; }).join('') +
     '</table></div>';
 }
 

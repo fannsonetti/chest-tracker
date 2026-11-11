@@ -1,0 +1,28 @@
+/* Streak tiers, shared by the MiniHUD and the popups.
+   ember < 10, blue 10+, purple 25+, prism 50+.
+   Prism is a white flame and number outlined by a pastel rainbow that travels
+   across them, like an LED strip's "rainbow wave": several colours are
+   visible at once and the band keeps moving, rather than one colour fading.
+   The flame's outline paints with the #rainbow-wave SVG gradient (match.js
+   adds it to the page); text uses the same colours as a moving background. */
+.tier-ember { --tier: #c99465; --tier-glow: rgba(232, 150, 80, .55); }
+.tier-blue { --tier: #7fb6f0; --tier-glow: rgba(127, 182, 240, .55); }
+.tier-purple { --tier: #b995f2; --tier-glow: rgba(185, 149, 242, .6); }
+.tier-prism { --tier: #ffffff; --tier-glow: rgba(255, 255, 255, .3); }
+
+/* Flames carry two copies of their paths: a wide rainbow ring under a thin core. */
+svg .ring { display: none; }
+.tier-prism svg .ring { display: inline; stroke: url(#rainbow-wave); stroke-width: 3.4; fill: none; }
+.tier-prism svg .core { stroke: #fff; }
+
+/* Text: the stroke takes the moving gradient; a white copy sits on top. */
+.wave-text { position: relative; display: inline-block; }
+.tier-prism .wave-text {
+  color: transparent; -webkit-text-stroke: 2.2px transparent;
+  background: repeating-linear-gradient(90deg, #ffb3c4 0, #ffd3ad 6px, #fff0a6 12px, #b8efc6 18px, #aed8ff 24px, #d3bdff 30px, #ffb3c4 36px);
+  background-size: 36px 100%; -webkit-background-clip: text; background-clip: text;
+  animation: wave-move 2.4s linear infinite;
+}
+.tier-prism .wave-text::after { content: attr(data-text); position: absolute; left: 0; top: 0; color: #fff; -webkit-text-stroke: 0; }
+@keyframes wave-move { to { background-position: 36px 0; } }
+@media (prefers-reduced-motion: reduce) { .tier-prism .wave-text { animation: none; } }

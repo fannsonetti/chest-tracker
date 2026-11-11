@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Chest Tracker · Popup</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<link rel="stylesheet" href="tiers.css">
 <style>
   /* Matches the MiniHUD panel (index.html): same tokens, type and surface. */
   :root {
@@ -16,119 +17,225 @@
     --gold: #e6bd67;
     --ember: #c99465;
     --stage: 5000ms;
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --spring: cubic-bezier(.3, 1.5, .5, 1);
   }
   * { box-sizing: border-box; user-select: none; }
   html, body { margin: 0; background: transparent; overflow: hidden; }
   body { font: 12px/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--fg); -webkit-font-smoothing: antialiased; }
-  /* Recap: centered card that settles in from a soft blur. */
-  #panel { width: 300px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px 10px; overflow: hidden; opacity: 0; }
-  #panel.in { opacity: 1; cursor: pointer; animation: card-in .42s cubic-bezier(.16,1,.3,1) both; }
-  #panel.out { animation: card-out .22s cubic-bezier(.4,0,1,1) both; }
-  #panel.broken-kind { width: max-content; max-width: 420px; border-radius: 999px; padding: 6px 20px 6px 12px; }
-  #panel.broken-kind #bar, #panel.broken-kind #steps, #panel.broken-kind #label { display: none; }
-  #panel.broken-kind.in { animation-name: drop-in; animation-duration: .5s; }
-  #panel.broken-kind.out { animation-name: rise-out; animation-duration: .26s; }
-  #panel.low { text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
-  #panel.clear { border-color: transparent; }
 
-  #bar { display: flex; align-items: center; gap: 6px; height: 28px; }
-  #bar .title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
-  #kicker { font-weight: 600; }
+  /* Recap: a large centred card that settles in from a soft blur. */
+  #panel { width: 440px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 8px 16px 16px; overflow: hidden; opacity: 0; }
+  #panel.in { opacity: 1; cursor: pointer; animation: card-in .55s var(--ease-out) both; }
+  #panel.out { animation: card-out .24s cubic-bezier(.4,0,1,1) both; }
+  #panel.low { text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
+
+  #bar { display: flex; align-items: center; gap: 8px; height: 32px; }
+  #bar .title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+  #kicker { font-size: 14px; font-weight: 600; }
   #sub { color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
-  #close { width: 22px; height: 22px; display: grid; place-items: center; font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; cursor: inherit; }
+  #close { width: 24px; height: 24px; display: grid; place-items: center; font: inherit; color: var(--muted); background: none; border: 0; border-radius: 6px; cursor: inherit; }
   #close:hover { color: var(--fg); background: var(--fill); }
   #close svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; fill: none; }
 
   /* Story-style progress: one segment per category. */
-  #steps { display: flex; gap: 3px; margin: 0 0 9px; }
-  #steps button { flex: 1; height: 8px; padding: 3px 0; border: 0; background: none; cursor: inherit; }
-  #steps button i { display: block; height: 2px; border-radius: 1px; background: var(--fill-hi); overflow: hidden; }
+  #steps { display: flex; gap: 4px; margin: 2px 0 12px; }
+  #steps button { flex: 1; height: 9px; padding: 3px 0; border: 0; background: none; cursor: inherit; }
+  #steps button i { display: block; height: 3px; border-radius: 2px; background: var(--fill-hi); overflow: hidden; }
   #steps button i::after { content: ''; display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
   #steps button.done i::after { transform: scaleX(1); }
   #steps button.now i::after { animation: fill var(--stage) linear forwards; }
   #panel.paused #steps button.now i::after { animation-play-state: paused; }
-  #label { color: var(--muted); font-size: 9px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 6px; }
+  #label { color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 8px; }
 
-  /* All stages share one grid cell so the panel keeps a steady height. */
+  /* All stages share one grid cell so the card keeps a steady height. Each
+     stage slides in from the right; its parts rise in one after another. */
   #stages { display: grid; }
-  .stage { grid-area: 1 / 1; visibility: hidden; opacity: 0; transform: translateX(6px); transition: opacity .25s, transform .25s, visibility 0s .25s; }
-  .stage.now { visibility: visible; opacity: 1; transform: none; transition: opacity .25s, transform .25s; }
+  .stage { grid-area: 1 / 1; visibility: hidden; opacity: 0; transform: translateX(18px); filter: blur(3px);
+    transition: opacity .3s, transform .45s var(--ease-out), filter .3s, visibility 0s .45s; }
+  .stage.now { visibility: visible; opacity: 1; transform: none; filter: none; transition: opacity .3s, transform .45s var(--ease-out), filter .3s; }
+  .stage.gone { transform: translateX(-18px); }
+  .rise { opacity: 0; transform: translateY(8px); }
+  .stage.now .rise { animation: rise .5s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 70ms + 80ms); }
+  .pop { opacity: 0; transform: scale(.86); }
+  .stage.now .pop { animation: pop .55s var(--spring) both; animation-delay: calc(var(--i, 0) * 110ms + 100ms); }
 
-  .num { font-size: 30px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-  .hero { display: flex; align-items: flex-end; gap: 8px; padding: 2px 0 10px; }
-  .hero > span { color: var(--muted); font-size: 11px; line-height: 1.3; padding-bottom: 2px; }
+  .num { font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .hero { display: flex; align-items: flex-end; gap: 10px; padding: 2px 0 14px; }
+  .hero.big .num { font-size: 56px; letter-spacing: -.03em; }
+  .hero > span { color: var(--muted); font-size: 12px; line-height: 1.3; padding-bottom: 4px; }
   .hero em { font-style: normal; color: var(--fg); }
-  .hero.streak .fire { width: 24px; height: 28px; color: var(--ember); fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; align-self: center; }
-  .hero.streak.idle .fire, .hero.streak.idle .num { color: var(--faint); }
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .stat { padding: 6px 0 5px; display: flex; flex-direction: column; gap: 1px; }
-  .stat + .stat { padding-left: 8px; border-left: 1px solid var(--line); }
-  .stat span { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
-  .stat b { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .foot { display: flex; align-items: center; gap: 5px; margin: 8px 0 0; color: var(--muted); font-size: 11px; min-width: 0; }
+  .stats.four { grid-template-columns: repeat(4, 1fr); }
+  .stat { padding: 9px 0 8px; display: flex; flex-direction: column; gap: 2px; }
+  .stat + .stat { padding-left: 10px; border-left: 1px solid var(--line); }
+  .stat span { color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; }
+  .stat b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .foot { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; color: var(--muted); font-size: 12px; min-width: 0; }
   .foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .foot em { font-style: normal; color: var(--fg); }
-  .foot.dim { display: block; line-height: 1.45; }
-  .crown { width: 13px; height: 13px; flex: none; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
-  .swatch { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--player); flex: none; margin: 0 4px 0 3px; }
+  .foot.dim { display: block; line-height: 1.45; font-size: 11px; }
+  .crown, .star { width: 14px; height: 14px; flex: none; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+  .swatch { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--player); flex: none; margin: 0 6px 0 3px; }
 
-  .head, .share { display: grid; grid-template-columns: minmax(0,1fr) 42px 38px; gap: 8px; align-items: center; }
-  .head { font-size: 9px; color: var(--muted); margin-bottom: 3px; }
+  /* Replay: the match played back as a race, clock and ticker included. */
+  .replay-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+  .replay-head .clock { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+  .replay-head .dim { color: var(--muted); }
+  .race { display: grid; grid-template-columns: 112px minmax(0, 1fr) 34px; gap: 10px; align-items: center; height: 26px; font-variant-numeric: tabular-nums; }
+  .race .who { display: flex; align-items: center; min-width: 0; }
+  .race .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .race .lane { height: 8px; border-radius: 4px; background: var(--fill); overflow: hidden; }
+  .race .lane i { display: block; height: 100%; width: 100%; border-radius: 4px; background: var(--player); transform-origin: left; transform: scaleX(0); }
+  .race b { text-align: right; font-size: 14px; font-weight: 600; }
+  .race b.bump { animation: bump .35s var(--spring); }
+  .ticker { height: 28px; margin-top: 10px; display: flex; align-items: center; }
+  .ticker .note { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px 0 9px; border-radius: 13px; background: var(--fill); font-size: 12px;
+    animation: note-in .4s var(--spring) both; }
+  .ticker .note svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .ticker .note.first svg, .ticker .note.last svg { color: var(--accent); }
+  .ticker .note.streak .fire { color: var(--tier); }
+
+  /* Awards: cards that spring in one at a time. */
+  .awards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .award { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 9px; row-gap: 1px; align-items: center; padding: 10px 11px; border-radius: 10px; background: var(--fill); overflow: hidden; }
+  .award > svg, .award > span:first-child { grid-row: 1 / 4; width: 22px; height: 22px; display: grid; place-items: center; }
+  .award > svg, .award > span:first-child svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+  .award .what { color: var(--muted); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; }
+  .award b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .award small { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .award.first, .award.last { color: var(--accent); }
+  .award.points { color: var(--gold); }
+  .award.streak > span:first-child { color: var(--tier); }
+  .award b, .award small { color: var(--fg); }
+  .award small { color: var(--muted); }
+  /* A soft glint sweeps each card once as it lands. */
+  .award::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.09) 50%, transparent 65%); transform: translateX(-100%); }
+  .stage.now .award::after { animation: glint .9s ease-out both; animation-delay: calc(var(--i, 0) * 110ms + 380ms); }
+
+  .head, .share { display: grid; grid-template-columns: minmax(0,1fr) 52px 46px; gap: 10px; align-items: center; }
+  .head { font-size: 9.5px; color: var(--muted); letter-spacing: .04em; margin-bottom: 4px; }
   .head span:not(:first-child), .share b, .share .pct { text-align: right; }
-  .share { grid-template-rows: 18px 3px; row-gap: 1px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .share { grid-template-rows: 22px 4px; row-gap: 2px; padding: 4px 0; font-size: 13px; font-variant-numeric: tabular-nums; }
   .share .who { display: flex; align-items: center; gap: 0; min-width: 0; }
-  .share .who .crown { margin-right: 4px; }
+  .share .who .crown, .share .who .star { margin-right: 5px; }
   .share .who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .share b { font-weight: 500; }
-  .share .pct { color: var(--muted); font-size: 11px; }
-  .share .track { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--fill); overflow: hidden; }
+  .share b { font-weight: 600; }
+  .share .pct { color: var(--muted); font-size: 12px; }
+  .share .track { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--fill); overflow: hidden; }
   .share .track i { display: block; height: 100%; background: var(--player); border-radius: 2px; transform-origin: left; transform: scaleX(0); }
-  .stage.now .share .track i { animation: grow .7s cubic-bezier(.2,.7,.2,1) forwards; animation-delay: var(--delay); }
+  .stage.now .share .track i { animation: grow .9s var(--ease-out) forwards; animation-delay: calc(var(--i, 0) * 90ms + 200ms); }
 
-  .list { border-top: 1px solid var(--line); padding-top: 4px; }
-  .list .row { display: flex; justify-content: space-between; align-items: center; height: 20px; font-variant-numeric: tabular-nums; }
+  .hero.streak .fire { width: 32px; height: 38px; color: var(--tier, var(--ember)); filter: drop-shadow(0 0 5px var(--tier-glow, transparent)); fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; align-self: center; }
+  .hero.streak .num { color: var(--tier, var(--fg)); }
+  .hero.streak.idle .fire, .hero.streak.idle .num { color: var(--faint); filter: none; }
+  .list { border-top: 1px solid var(--line); padding-top: 6px; }
+  .list .row { display: flex; justify-content: space-between; align-items: center; height: 24px; font-size: 13px; font-variant-numeric: tabular-nums; }
   .list .row span { display: flex; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .list .row b { font-weight: 500; }
+  .list .row b { font-weight: 600; }
+  .list .row b.tier-blue, .list .row b.tier-purple { color: var(--tier); }
   .list .row.none { color: var(--muted); }
 
   .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
   .chart .grid { stroke: var(--line); stroke-width: .6; fill: none; }
-  .chart .line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-dasharray: 600; stroke-dashoffset: 600; }
-  .stage.now .chart .line { animation: draw 1.6s ease-out forwards; }
-  .axis { display: flex; justify-content: space-between; color: var(--faint); font-size: 9px; margin-top: 3px; font-variant-numeric: tabular-nums; }
-  .legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 7px; font-size: 11px; color: var(--muted); }
+  .chart .line { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-dasharray: 900; stroke-dashoffset: 900; }
+  .stage.now .chart .line { animation: draw 2s var(--ease-out) forwards; animation-delay: var(--d, 0ms); }
+  .axis { display: flex; justify-content: space-between; color: var(--faint); font-size: 10px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 9px; font-size: 12px; color: var(--muted); }
   .legend span { display: flex; align-items: center; }
 
-  /* Streak broken: the flame is struck through and cools to grey. */
-  .broken { display: flex; align-items: center; gap: 10px; height: 34px; }
-  .broken .flame { position: relative; width: 24px; height: 28px; flex: none; }
-  .broken .fire { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--ember); fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round;
-    filter: drop-shadow(0 0 5px rgba(232, 150, 80, .55)); animation: cool .7s .55s ease-out forwards; }
-  .broken .fire path:first-child { fill: rgba(201, 148, 101, .18); animation: cool-fill .7s .55s ease-out forwards; }
-  .broken .strike { position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px); fill: none; stroke: var(--fg); stroke-width: 1.8; stroke-linecap: round;
-    stroke-dasharray: 34; stroke-dashoffset: 34; animation: strike .32s .3s cubic-bezier(.65,0,.35,1) forwards; }
-  .broken .who { font-size: 15px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: name-in .4s .12s cubic-bezier(.16,1,.3,1) both; }
-  #panel.broken-kind.mine { border-color: rgba(240, 144, 127, .28); }
-  .mine .flame { animation: shake .45s .3s ease-in-out; }
+  /* Pills (streak taken, personal best): only the feat itself. */
+  #panel.pill-kind { width: max-content; max-width: 460px; border-radius: 999px; padding: 9px 24px 9px 14px; }
+  #panel.pill-kind #bar, #panel.pill-kind #steps, #panel.pill-kind #label { display: none; }
+  #panel.pill-kind.in { animation-name: drop-in; animation-duration: .5s; }
+  #panel.pill-kind.out { animation-name: rise-out; animation-duration: .26s; }
+  #panel.pill-kind .stage { transform: none; filter: none; transition: none; }
+
+  /* Streak taken: holder struck through, flame cools, the reel rolls to the
+     taker, and the flame relights in the taker's tier colour. */
+  .taken, .tierup { --from: #c99465; --to: #c99465; --from-glow: rgba(232, 150, 80, .55); --to-glow: rgba(232, 150, 80, .55);
+    display: flex; align-items: center; gap: 12px; }
+  :is(.taken, .tierup)[data-from=blue] { --from: #7fb6f0; --from-glow: rgba(127, 182, 240, .55); }
+  :is(.taken, .tierup)[data-from=purple] { --from: #b995f2; --from-glow: rgba(185, 149, 242, .6); }
+  :is(.taken, .tierup)[data-from=prism] { --from: #ffffff; --from-glow: rgba(255, 255, 255, .3); }
+  :is(.taken, .tierup)[data-to=blue] { --to: #7fb6f0; --to-glow: rgba(127, 182, 240, .55); }
+  :is(.taken, .tierup)[data-to=purple] { --to: #b995f2; --to-glow: rgba(185, 149, 242, .6); }
+  :is(.taken, .tierup)[data-to=prism] { --to: #ffffff; --to-glow: rgba(255, 255, 255, .3); }
+  .taken .flame, .best .flame { position: relative; width: 30px; height: 34px; flex: none; display: grid; place-items: center; }
+  .taken .fire { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--from); fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px var(--from-glow)); animation: cool .4s .75s ease-out forwards, relight .55s 1.5s ease-out forwards; }
+  .taken .fire .core path:first-child { fill: color-mix(in srgb, currentColor 16%, transparent); }
+  /* Prism ring: shown for a prism holder, fades as the flame cools, and comes back for a prism taker. */
+  .taken[data-from=prism] .fire .ring, .taken[data-to=prism] .fire .ring { display: inline; stroke: url(#rainbow-wave); stroke-width: 3.4; fill: none; }
+  .taken[data-from=prism] .fire .ring { animation: fade-out .35s .75s forwards; }
+  .taken[data-to=prism]:not([data-from=prism]) .fire .ring { opacity: 0; animation: fade-in .45s 1.5s forwards; }
+  .taken[data-from=prism][data-to=prism] .fire .ring { animation: fade-out .35s .75s forwards, fade-in .45s 1.5s forwards; }
+  .taken .slot { height: 28px; overflow: hidden; }
+  .taken .reel { display: flex; flex-direction: column; animation: roll .5s 1.45s cubic-bezier(.7,0,.25,1) forwards; }
+  .taken .line, .best .line { height: 28px; display: flex; align-items: center; gap: 9px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  .taken .struck { position: relative; display: inline-flex; align-items: center; gap: 9px; animation: dim .3s .95s ease-out forwards; }
+  .taken .struck::after { content: ''; position: absolute; left: -3px; right: -3px; top: 52%; height: 2px; border-radius: 1px; background: var(--fg);
+    transform: scaleX(0); transform-origin: left; animation: strike-x .38s .6s cubic-bezier(.65,0,.35,1) forwards; }
+  .taken .name { overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+  .taken .count { min-width: 26px; height: 21px; padding: 0 8px; border-radius: 11px; display: inline-grid; place-items: center; font-size: 13px; font-variant-numeric: tabular-nums;
+    color: var(--tier); background: color-mix(in srgb, var(--tier) 15%, transparent); }
+  .taken .new .count { animation: pop .4s 1.9s var(--spring) both; }
+  .taken .new.me .name { color: var(--gold); }
+  #panel.pill-kind.mine { border-color: rgba(240, 144, 127, .32); }
+  .mine .flame { animation: shake .45s .75s ease-in-out; }
+
+  /* New flame colour: the old colour swells and ignites into the new one. */
+  .tierup .flame { position: relative; width: 30px; height: 34px; flex: none; }
+  .tierup .fire { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--from); fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 0 5px var(--from-glow)); animation: ignite .7s .4s var(--spring) forwards; }
+  .tierup .fire .core path:first-child { fill: color-mix(in srgb, currentColor 16%, transparent); }
+  .tierup[data-to=prism] .fire .ring { display: inline; stroke: url(#rainbow-wave); stroke-width: 3.4; fill: none; opacity: 0; animation: fade-in .5s .6s forwards; }
+  .tierup .line { height: 28px; display: flex; align-items: center; gap: 9px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  .tierup .count { min-width: 26px; height: 21px; padding: 0 8px; border-radius: 11px; display: inline-grid; place-items: center; font-size: 13px; font-variant-numeric: tabular-nums;
+    color: var(--tier); background: color-mix(in srgb, var(--tier) 15%, transparent); animation: pop .45s .75s var(--spring) both; }
+  @keyframes ignite { 0% { color: var(--from); transform: none; } 45% { transform: scale(1.32); filter: drop-shadow(0 0 12px var(--to-glow)); }
+    100% { color: var(--to); transform: none; filter: drop-shadow(0 0 7px var(--to-glow)); } }
+
+  /* Personal best: a gold trophy that pops in. */
+  #panel.best-kind { border-color: rgba(230, 189, 103, .35); }
+  .best { display: flex; align-items: center; gap: 12px; }
+  .best .trophy { width: 28px; height: 28px; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px rgba(230, 189, 103, .55)); animation: pop .5s .15s var(--spring) both; }
+  .best .line { font-variant-numeric: tabular-nums; animation: name-in .4s .25s var(--ease-out) both; }
 
   @keyframes fill { to { transform: scaleX(1); } }
   @keyframes grow { to { transform: scaleX(1); } }
   @keyframes draw { to { stroke-dashoffset: 0; } }
-  @keyframes card-in { from { opacity: 0; transform: scale(.94) translateY(6px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  @keyframes pop { from { transform: scale(.86); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes bump { 40% { transform: scale(1.25); } }
+  @keyframes note-in { from { opacity: 0; transform: translateY(6px) scale(.94); } to { opacity: 1; transform: none; } }
+  @keyframes glint { to { transform: translateX(100%); } }
+  @keyframes card-in { from { opacity: 0; transform: scale(.94) translateY(10px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
   @keyframes card-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.97); filter: blur(3px); } }
   @keyframes drop-in { from { opacity: 0; transform: translateY(-110%) scale(.92); } 60% { opacity: 1; } to { opacity: 1; transform: none; } }
   @keyframes rise-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-70%) scale(.96); } }
-  @keyframes strike { to { stroke-dashoffset: 0; } }
-  @keyframes cool { to { color: var(--faint); filter: drop-shadow(0 0 0 transparent) grayscale(1); transform: scale(.92); } }
-  @keyframes cool-fill { to { fill: rgba(124, 130, 141, .12); } }
+  @keyframes strike-x { to { transform: scaleX(1); } }
+  @keyframes dim { to { color: var(--muted); } }
+  @keyframes roll { to { transform: translateY(-28px); } }
+  @keyframes fade-out { to { opacity: 0; } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes cool { to { color: var(--faint); filter: drop-shadow(0 0 0 transparent); transform: scale(.9); } }
+  @keyframes relight { from { color: var(--faint); filter: drop-shadow(0 0 0 transparent); transform: scale(.9); } 60% { transform: scale(1.08); } to { color: var(--to); filter: drop-shadow(0 0 7px var(--to-glow)); transform: none; } }
   @keyframes name-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
   @keyframes shake { 25% { transform: translateX(-1.5px) rotate(-6deg); } 50% { transform: translateX(1.5px) rotate(5deg); } 75% { transform: translateX(-1px) rotate(-2deg); } }
   @media (prefers-reduced-motion: reduce) {
-    #panel, .stage { transition: none; transform: none; }
-    #panel.in, #panel.out, #panel.broken-kind.in, #panel.broken-kind.out { animation: none; }
+    #panel, .stage { transition: none; transform: none; filter: none; }
+    #panel.in, #panel.out, #panel.pill-kind.in, #panel.pill-kind.out { animation: none; }
     #panel.out { opacity: 0; }
-    .stage.now .share .track i, .stage.now .chart .line, .broken .who, .mine .flame { animation: none; transform: none; stroke-dashoffset: 0; }
-    .broken .fire, .broken .fire path:first-child, .broken .strike { animation-duration: 1ms; animation-delay: 0s; }
+    .rise, .pop, .stage.now .rise, .stage.now .pop { animation: none; opacity: 1; transform: none; }
+    .award::after, .ticker .note, .race b.bump { animation: none; }
+    .best .trophy, .best .line { animation: none; }
+    .stage.now .share .track i, .stage.now .chart .line, .taken .fire, .taken .new .count, .taken .struck, .mine .flame, .taken .fire .ring { animation: none; transform: none; stroke-dashoffset: 0; }
+    .taken .struck::after { animation: none; transform: none; }
+    .tierup .fire { animation: none; color: var(--to); }
+    .tierup .count, .tierup .fire .ring { animation: none; opacity: 1; }
+    .taken .reel { animation: none; transform: translateY(-28px); }
     .share .track i { transform: none; }
     .chart .line { stroke-dashoffset: 0; }
   }

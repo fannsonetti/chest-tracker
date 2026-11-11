@@ -1,7 +1,7 @@
 const http = require('node:http');
 const { randomBytes, randomUUID } = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
-const { OpeningStreaks } = require('../match');
+const { OpeningStreaks, POINTS_VERSION } = require('../match');
 const { signResult, loadSigningKey } = require('../proof');
 
 function createRelay({ signingKey = loadSigningKey() } = {}) {
@@ -30,8 +30,17 @@ function createRelay({ signingKey = loadSigningKey() } = {}) {
   }
   function broadcast(room) {
     room.streaks.setPlayers(room.members.size);
-    const players = room.streaks.live([...room.members.values()]);
+    const now = Date.now();
+    const players = room.streaks.live([...room.members.values()], now);
     for (const c of room.members.keys()) send(c, { t:'roster', role:c === room.host ? 'host':'client', code:room.code, ended:!!room.ended, players });
+    // Streaks run out on their own; tell everyone the moment one does, since
+    // that can hand the lead to someone else.
+    clearTimeout(room.expiry);
+    const next = room.ended ? Infinity : room.streaks.nextExpiry(now);
+    if (Number.isFinite(next)) {
+      room.expiry = setTimeout(() => { if (rooms.get(room.code) === room) broadcast(room); }, Math.max(0, next - now) + 25);
+      room.expiry.unref?.();
+    }
   }
   // Clients from 1.1.8 on (v >= 2) understand a frozen finished match. Older
   // clients reset as soon as a match ends, so a room with any of them keeps
@@ -52,7 +61,7 @@ function createRelay({ signingKey = loadSigningKey() } = {}) {
     if (!room) return;
     c.room = null; room.members.delete(c);
     if (room.host === c) {
-      rooms.delete(room.code);
+      rooms.delete(room.code); clearTimeout(room.expiry);
       for (const peer of room.members.keys()) { peer.room = null; peer.close(1000, 'Host left'); }
     } else broadcast(room);
     broadcastLobbies();
@@ -114,14 +123,23 @@ function createRelay({ signingKey = loadSigningKey() } = {}) {
         const id = randomUUID(), players = room.streaks.recap([...room.members.values()]);
         // Points are scored here from the relay's own receipt log and signed,
         // so the app can trust them on its leaderboards.
-        const proof = signResult({ v:1, id, start:room.start, end:now, size:room.members.size,
-          players:players.map(({ id, name, chests, bestStreak, points }) => ({ id, name, chests, bestStreak, points })) }, signingKey);
+        const proof = signResult({ v:POINTS_VERSION, id, start:room.start, end:now, size:room.members.size,
+          players:players.map(({ id, name, chests, bestStreak, points, first, last }) => ({ id, name, chests, bestStreak, points, first, last })) }, signingKey);
         const message = { t:'matchEnd', id, start:room.start, end:now, timeline:room.streaks.timeline(), players, proof };
         for (const peer of room.members.keys()) send(peer, message);
         // The finished match stays frozen until the host starts a new one or
         // anyone opens a chest; rooms with older clients move on immediately.
         if (canFreeze(room)) broadcast(room);
         else startMatch(room, now);
+      } else if (m.t === 'share' && c.room) {
+        // Members hand each other relay-signed match results, so everyone's
+        // leaderboards hold the same matches. Receivers check every signature.
+        const proofs = (Array.isArray(m.proofs) ? m.proofs : []).slice(0, 12)
+          .filter(p => p && typeof p.data === 'string' && typeof p.sig === 'string' && p.data.length <= 4000 && p.sig.length <= 200)
+          .map(p => ({ data:p.data, sig:p.sig }));
+        if (!proofs.length) return;
+        const from = c.room.members.get(c).id;
+        for (const peer of c.room.members.keys()) if (peer !== c) send(peer, { t:'shared', from, proofs });
       } else if (m.t === 'newMatch' && c.room) {
         const room = c.room;
         // The host can start the next match; anyone can by opening a chest.

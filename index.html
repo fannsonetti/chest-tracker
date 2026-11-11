@@ -177,7 +177,17 @@
   .leader-slot { display:inline-flex; width:13px; flex:none; }
   .player-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .streak { display:flex; align-items:center; justify-content:flex-end; gap:4px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-  .streak.active { color:#c99465; }
+  .streak.active { color:var(--tier); }
+  .streak svg { overflow:visible; }
+  /* You see your own streak and the leader's. The line under each drains
+     toward the moment it runs out; your own, when not leading, is dimmer. */
+  .streak.timed { position:relative; }
+  .streak.timed::after { content:''; position:absolute; right:0; bottom:-2px; width:30px; height:2px; border-radius:1px; background:currentColor; opacity:.7;
+    transform-origin:right; transform:scaleX(var(--from)); animation:drain var(--left) linear forwards; }
+  .streak.chasing { opacity:.62; }
+  @keyframes drain { to { transform:scaleX(0); } }
+  @media (prefers-reduced-motion:reduce) { .streak.timed::after { animation:none; } }
+
   .streak svg { width:13px; height:15px; fill:none; stroke:currentColor; stroke-width:1.15; stroke-linecap:round; stroke-linejoin:round; }
   #statHead { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:9px; margin:0 0 4px; }
   #statHead .columns { display:flex; gap:9px; }
@@ -199,7 +209,7 @@
   .row.token { border-top:1px solid var(--line); margin-top:5px; padding-top:7px; height:31px; }
   .row.token .val { font-size:11px; color:var(--fg); }
 
-</style><link rel="stylesheet" href="recap.css"></head>
+</style><link rel="stylesheet" href="recap.css"><link rel="stylesheet" href="tiers.css"></head>
 <body><div id="panel">
   <header id="bar">
     <div class="title"><span id="matchNo">Match 1</span><span id="matchNow"></span></div>
@@ -262,10 +272,10 @@ const DEF = {
   chests:0, teamChests:0, matches:0, odds:137500,
   show:{ chests:true, teamChests:true, cpm:true, token:true }, hidden:false,
   cur:{ chests:0, teamChests:0, start:Date.now() },
-  // Chests per match: only matches with MIN_CPM_CHESTS or more count.
-  cpm:{ matches:0, chests:0, teamMatches:0, team:0 },
-  history:[], name:'', id:'', v:2, compact:true, opacity:88,
-  countMode:'both', recaps:true, streakPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
+  // CPM averages counted games in history that ended after cpmFrom (Reset counts).
+  cpmFrom:0,
+  history:[], shared:[], name:'', id:'', v:4, compact:true, opacity:88,
+  countMode:'both', recaps:true, streakPopups:true, bestPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
   keys:{ chestUp:'numadd', chestDown:'numsub', match:'F8', toggle:'F9', options:'F10' },
 };
 let s;
@@ -278,25 +288,31 @@ try {
   // Team chests come only from teammates' own counts; the manual keys are gone.
   delete s.keys.teamUp; delete s.keys.teamDown;
   if (!Array.isArray(s.history)) s.history = [];
-  if (!raw.cpm) {
-    s.cpm = { matches:0, chests:0, teamMatches:0, team:0 };
-    for (const m of s.history) countCpm(s.cpm, m.chests, m.recapTeamTotal ?? m.teamChests);
-  }
+  if (!Array.isArray(s.shared)) s.shared = [];
   // v2: team chests include your own chests. Fold old separate counts in once.
   if (!(raw.v >= 2) && Object.keys(raw).length) {
     s.teamChests += s.chests;
     s.cur.teamChests += s.cur.chests;
     for (const m of s.history) m.teamChests += m.chests;
   }
-  s.v = 2;
+  // v3: only games of 3+ minutes and 5+ chests count. Renumber saved games and
+  // derive the game counter from them, so the HUD, Matches and boards agree.
+  if (!(raw.v >= 3) && Object.keys(raw).length) {
+    let n = 0;
+    for (const m of s.history) m.n = countedMatch(m) ? ++n : null;
+    s.matches = n; s.cpmFrom = 0;
+  }
+  // v4: games under 3 minutes or 5 chests are not kept at all.
+  if (!(raw.v >= 4)) { s.history = s.history.filter(countedMatch); s.shared = s.shared.filter(countedMatch); }
+  delete s.cpm;
+  s.v = 4;
 } catch (e) { s = JSON.parse(JSON.stringify(DEF)); }
 if (!s.id) s.id = Math.random().toString(36).slice(2, 10);
 const save = () => { try { localStorage.setItem('s', JSON.stringify(s)); } catch (e) {} };
-function countCpm(cpm, chests, team) {
-  chests = Number(chests) || 0; team = Number(team) || 0;
-  if (chests >= MIN_CPM_CHESTS) { cpm.matches++; cpm.chests += chests; }
-  if (team >= MIN_CPM_CHESTS) { cpm.teamMatches++; cpm.team += team; }
-}
+// Once an ended game's recap has finished, the HUD shows the next game at zero.
+const cleared = () => !!(s.cur.ended && s.cur.cleared);
+const curChests = () => cleared() ? 0 : s.cur.chests;
+const curTeam = () => cleared() ? 0 : s.cur.teamChests;
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -354,9 +370,9 @@ function resetTeammateCredits() {
 const total = () => s.teamChests;
 // Add new stats here. `field` adds +/- buttons on hover.
 const STATS = [
-  { key:'chests',     label:'CTG',       val:() => paired(s.cur.chests, s.cur.teamChests, true),
+  { key:'chests',     label:'CTG',       val:() => paired(curChests(), curTeam(), true),
     icon:'<path d="M2 6.5h10V12H2z"/><path d="M2 6.5V5a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 12 5v1.5"/><path d="M7 6.5v2"/>' },
-  { key:'cpm',        label:'CPM',    val:() => paired(s.cpm.matches ? (s.cpm.chests / s.cpm.matches).toFixed(2) : '–', s.cpm.teamMatches ? (s.cpm.team / s.cpm.teamMatches).toFixed(2) : '–'),
+  { key:'cpm',        label:'CPM',    val:() => { const a = matchAverages(s.history, s.cpmFrom); return paired(a.own ?? '–', a.team ?? '–'); },
     icon:'<path d="M3.5 12.5V2"/><path d="M3.5 2.5h7l-1.6 2.6 1.6 2.6h-7"/>' },
   { key:'token',      label:'Token chance', val:() => (100 * (1 - Math.pow(1 - 1 / s.odds, total()))).toFixed(4) + '%',
     icon:'<path d="M7 1.5l5 4.2L7 12.5 2 5.7z"/><path d="M2 5.7h10M5 5.7L7 12.5l2-6.8"/>' },
@@ -366,7 +382,7 @@ const COMPACT_W = 224, FULL_W = 248;
 // +/- always change your own chests; team chests only come from teammates.
 function paired(personal, team, controls = false) {
   const value = (n, label, ctl = controls) => '<span class="pair" title="' + label + '">' +
-    (ctl ? '<span class="ctl"><button data-f="chests" data-d="-1"' + (s.cur.chests > 0 ? '' : ' disabled') + ' aria-label="Remove one of your chests">' + ICON_MINUS + '</button></span>' : '') +
+    (ctl ? '<span class="ctl"><button data-f="chests" data-d="-1"' + (curChests() > 0 ? '' : ' disabled') + ' aria-label="Remove one of your chests">' + ICON_MINUS + '</button></span>' : '') +
     '<span class="val">' + esc(n) + '</span>' +
     (ctl ? '<span class="ctl"><button data-f="chests" data-d="1" aria-label="Add one of your chests">' + ICON_PLUS + '</button></span>' : '') + '</span>';
   if (s.countMode === 'personal') return value(personal, 'Personal chests');
@@ -376,14 +392,27 @@ function paired(personal, team, controls = false) {
 }
 
 const CROWN = '<svg class="crown" viewBox="0 0 16 16" role="img" aria-label="Match leader"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
-const FIRE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.5 1.5c.8 3-2.8 4.1-2.1 6.4C5 7.4 4.3 6.5 4.2 5.4 2.8 7 2 8.5 2 10a6 6 0 0 0 12 0c0-3-2.4-5.3-5.5-8.5Z"/><path d="M8 9c1.5 1.1 2 2 2 3a2 2 0 0 1-4 0c0-.8.6-1.9 2-3Z"/></svg>';
+// The flame carries a hidden rainbow ring for the 50+ tier (tiers.css).
+const FIRE = RECAP_FIRE;
+if (typeof document.body?.appendChild === 'function') addRainbowWave(document);
 function rankedPlayers() {
   const players = net.players.filter(p => p.id !== s.id).map(p => ({ ...p }));
   const own = net.players.find(p => p.id === s.id);
-  players.push({ id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start,
-    streak:players.length ? asStreak(own?.streak || 0) : 0,
+  const party = ['host', 'client'].includes(net.status) && !!own;
+  players.push({ ...(party ? own : {}), id:s.id, name:s.name || 'You', chests:s.cur.chests, teamChests:s.cur.teamChests, matchStart:s.cur.start,
     bestStreak:players.length ? asStreak(own?.bestStreak || 0) : 0 });
-  for (const p of players) p.streak = asStreak(p.streak || 0);
+  // Streaks: in a party the relay times everyone's; offline, your own openings do.
+  const now = Date.now(), solo = soloOpenings.streakOf(s.id, now);
+  for (const p of players) {
+    if (!party) { p.streak = p.id === s.id ? solo.n : 0; p.streakLeft = solo.left; p.streakWindow = solo.window; p.lead = p.streak > 0; }
+    else if (Number.isFinite(p.streakUntil)) {
+      p.streakLeft = p.streakUntil - now;
+      p.streak = p.streakLeft > 0 ? asStreak(p.streak || 0) : 0;
+      p.lead = !!p.lead && p.streak > 0;
+    } else { p.streak = asStreak(p.streak || 0); p.streakLeft = 0; p.lead = p.streak > 0; }   // relays before 1.2.2: one holder, no timer
+    if (s.cur.ended) { p.streak = 0; p.lead = false; }
+  }
+  if (cleared()) for (const p of players) { p.chests = 0; p.teamChests = 0; p.streak = 0; p.lead = false; }
   return players.sort((a, b) => b.chests - a.chests || String(a.id).localeCompare(String(b.id)));
 }
 
@@ -400,23 +429,37 @@ function checkOvertakes(previous, current) {
     noticeUntil = Date.now() + 4000;
   }
 }
-// A streak (2+ in a row) is broken only when someone else starts one.
-// Corrections that shrink a streak and match resets are not breaks.
+// The streak leader: the relay marks them; relays before 1.2.2 had a single holder.
+function streakLeader(players) {
+  return players.some(p => 'lead' in p) ? players.find(p => p.lead) : players.find(p => asStreak(p.streak || 0) > 0);
+}
+// Everyone in the room sees the lead change hands: when someone passes the
+// leader, or the leader's streak runs out and the next-biggest takes over.
+// Corrections and match resets do not count.
 function checkStreakBreaks(previous, current) {
   if (!s.streakPopups || previous.status !== current.status || !['host', 'client'].includes(current.status)) return;
-  const was = previous.players.map(p => ({ ...p, streak:asStreak(p.streak || 0) })).find(p => p.streak > 0);
-  if (!was) return;
-  const now = current.players.find(p => p.id === was.id);
-  if (!now || now.matchStart !== was.matchStart || asStreak(now.streak || 0) > 0) return;
-  const opened = p => {
-    const before = previous.players.find(q => q.id === p.id);
-    return p.id !== was.id && before && before.matchStart === p.matchStart && p.chests > before.chests;
-  };
-  // The new streak holder broke it; older servers break on any opening.
-  const breaker = current.players.find(p => opened(p) && asStreak(p.streak || 0) > 0) || current.players.find(opened);
-  if (!breaker) return;
-  window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:breaker.name, n:was.streak,
-    mine:was.id === s.id, byMe:breaker.id === s.id, opacity:s.opacity, sound:s.sound });
+  const was = streakLeader(previous.players), now = streakLeader(current.players);
+  if (!was || !now || was.id === now.id || was.matchStart !== now.matchStart) return;
+  if (!current.players.some(p => p.id === was.id)) return;                       // they left the room
+  const corrected = current.players.some(p => { const b = previous.players.find(q => q.id === p.id); return b && b.matchStart === p.matchStart && p.chests < b.chests; });
+  if (corrected) return;
+  window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:now.name, n:asStreak(was.streak || 0), newN:asStreak(now.streak || 0),
+    mine:was.id === s.id, byMe:now.id === s.id, opacity:s.opacity, sound:s.sound });
+}
+// A pill the moment your streak, or the leader's, reaches a new flame colour
+// (10 blue, 25 purple, 50 rainbow). Once per climb: dropping back and climbing
+// again shows it again. The first look at a player only takes a baseline.
+const TIER_ORDER = ['ember', 'blue', 'purple', 'prism'];
+const tierSeen = new Map();
+function checkTierUps(players) {
+  for (const p of players) {
+    const key = p.matchStart + ':' + p.id, rank = p.streak ? TIER_ORDER.indexOf(streakTier(p.streak)) : 0;
+    const before = tierSeen.get(key);
+    tierSeen.set(key, rank);
+    if (before === undefined || rank <= before || !s.streakPopups || !(p.id === s.id || p.lead)) continue;
+    window.api.showPopup?.({ kind:'streakTier', name:p.name, n:p.streak, tier:TIER_ORDER[rank], from:TIER_ORDER[before],
+      mine:p.id === s.id, opacity:s.opacity, sound:s.sound });
+  }
 }
 function renderNotice() {
   const el = $('notice'), hidden = s.hidden || Date.now() >= noticeUntil;
@@ -456,14 +499,14 @@ function when(ts) {
 
 // ---------- Rendering ----------
 function renderBar() {
-  $('matchNo').textContent = 'Game ' + (s.cur.ended ? s.matches : s.matches + 1);
+  $('matchNo').textContent = gameLabel(s);
   renderClock();
   for (const b of document.querySelectorAll('nav .icon')) b.classList.toggle('on', b.dataset.view === view);
   document.querySelector('[data-view=party]').classList.toggle('linked', net.status === 'host' || net.status === 'client');
 }
 function renderClock() {
-  const seconds = Math.max(0, Math.floor(((s.cur.ended || Date.now()) - s.cur.start) / 1000));
-  $('matchNow').textContent = Math.floor(seconds / 60).toString().padStart(2,'0') + ':' + (seconds % 60).toString().padStart(2,'0') + (s.cur.ended ? ' · ended' : '');
+  const seconds = cleared() ? 0 : Math.max(0, Math.floor(((s.cur.ended || Date.now()) - s.cur.start) / 1000));
+  $('matchNow').textContent = Math.floor(seconds / 60).toString().padStart(2,'0') + ':' + (seconds % 60).toString().padStart(2,'0') + (cleared() ? ' · ready' : s.cur.ended ? ' · ended' : '');
   $('matchNow').classList.toggle('ended', !!s.cur.ended);
 }
 const PLAY = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1.5v7l6-3.5z"/></svg>';
@@ -504,15 +547,22 @@ function renderRoster() {
   if (el.hidden) return;
   const players = rankedPlayers(), most = players[0].chests;
   const leaderId = most > 0 ? players[0].id : null;
-  const active = players.find(p => p.streak > 0);
-  const streakOwner = active || players.find(p => p.id === s.id);
+  // You see your own streak and the leader's; nobody else's.
+  const streakCell = p => {
+    const mine = p.id === s.id;
+    if (!p.streak || !(p.lead || mine)) return mine && !players.some(q => q.lead) ? '<span class="streak" aria-label="No streak">' + FIRE + '<span>0</span></span>' : '<span></span>';
+    const timed = p.streakLeft > 0 && p.streakWindow > 0;
+    const left = Math.ceil(p.streakLeft / 1000);
+    return '<span class="streak active tier-' + streakTier(p.streak) + (p.lead ? ' lead' : ' chasing') + (timed ? ' timed' : '') + '"' +
+      (timed ? ' style="--from:' + Math.min(1, p.streakLeft / p.streakWindow).toFixed(3) + ';--left:' + Math.round(p.streakLeft) + 'ms"' : '') +
+      ' aria-label="' + (p.lead ? 'Leading' : 'Your') + ' streak: ' + p.streak + (timed ? ', ' + left + ' seconds to keep it' : '') + '" title="' + (timed ? 'Open another within ' + left + 's to keep it' : '') + '">' +
+      FIRE + '<span class="wave-text" data-text="' + p.streak + '">' + p.streak + '</span></span>';
+  };
   const rows = players.map(p => {
     const mine = p.id === s.id;
     const leader = p.id === leaderId;
-    const showStreak = players.length > 1 && p.id === streakOwner?.id;
-    const run = active ? active.streak : 0;
     return '<div class="p' + (mine ? ' me' : '') + (leader ? ' leader' : '') + '"><span class="name"><span class="leader-slot">' + (leader ? CROWN : '') + '</span><span class="player-name">' + esc(mine ? 'You' : p.name) + '</span></span>' +
-      '<span class="n">' + esc(p.chests) + '</span>' + (showStreak ? '<span class="streak' + (active ? ' active' : '') + '" aria-label="' + (active ? 'Active' : 'Inactive') + ' opening streak: ' + run + '">' + FIRE + '<span>' + run + '</span></span>' : '<span></span>') + '</div>';
+      '<span class="n">' + esc(p.chests) + '</span>' + streakCell(p) + '</div>';
   });
   el.innerHTML = '<div class="roster-head"><span>SQUAD</span><span>GAME</span><span>STREAK</span></div>' + rows.join('');
 }
@@ -673,7 +723,17 @@ function bump(f, d) {
   soloOpenings.observe(s.id, s.cur.chests);
   recordSession(s.chests - beforeChests, s.teamChests - beforeTeam);
   if (s.sound) window.playTrackerClick?.();
+  checkPersonalBest();
+  checkTierUps(rankedPlayers());
   render();
+}
+// Passing your best counted game shows a gold pill, once per game.
+function checkPersonalBest() {
+  if (!s.bestPopups || s.cur.pbShown || s.cur.ended) return;
+  const best = Math.max(0, ...s.history.filter(countedMatch).map(m => Number(m.chests) || 0));
+  if (best < MIN_MATCH_CHESTS || s.cur.chests <= best) return;
+  s.cur.pbShown = true;
+  window.api.showPopup?.({ kind:'personalBest', n:s.cur.chests, best, opacity:s.opacity, sound:s.sound });
 }
 function endMatch() {
   if (s.cur.ended) return newGame();
@@ -692,21 +752,45 @@ function finishMatch(event) {
   const own = result.find(p => p.id === s.id);
   s.streak = own?.bestStreak || 0;
   s.bestStreak = Math.max(s.bestStreak, own?.bestStreak || 0);
-  session.matches += 1;
-  session.completedTeam += session.matchTeam;
-  session.matchTeam = 0;
-  s.matches += 1;
   const party = (net.status === 'host' || net.status === 'client')
     ? net.players.filter(p => p.id !== s.id).map(p => ({ name:p.name, chests:p.chests, teamChests:p.teamChests })) : [];
   const recapTeamTotal = event ? result.reduce((n,p)=>n+p.chests,0) : s.cur.teamChests;
-  countCpm(s.cpm, s.cur.chests, recapTeamTotal);
-  s.history.push({ n:s.matches, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result, recapTeamTotal, timeline:event?.timeline || soloOpenings.timeline(), timelineStart:event?.start || s.cur.start,
-    ...(event?.proof ? { proof:{ data:String(event.proof.data), sig:String(event.proof.sig) } } : {}) });
+  const entry = { n:null, start:s.cur.start, end:event?.end || Date.now(), chests:s.cur.chests, teamChests:s.cur.teamChests, party, recap:result, recapTeamTotal, timeline:event?.timeline || soloOpenings.timeline(), timelineStart:event?.start || s.cur.start,
+    ...(event?.proof ? { proof:{ data:String(event.proof.data), sig:String(event.proof.sig) } } : {}) };
+  // Games under 3 minutes or 5 chests are not saved, numbered, recapped or
+  // counted anywhere: their chests come back off the lifetime and session totals.
+  if (!countedMatch(entry)) {
+    s.chests = Math.max(0, s.chests - s.cur.chests);
+    s.teamChests = Math.max(s.chests, s.teamChests - s.cur.teamChests);
+    session.chests = Math.max(0, session.chests - s.cur.chests);
+    session.teamChests = Math.max(session.chests, session.teamChests - session.matchTeam);
+    session.matchTeam = 0;
+    s.cur.ended = entry.end; s.cur.cleared = true;
+    $('notice').textContent = 'Under 3 minutes or 5 chests · not saved';
+    noticeUntil = Date.now() + 4000;
+    render();
+    return;
+  }
+  entry.n = ++s.matches;
+  session.matches += 1;
+  session.completedTeam += session.matchTeam;
+  session.matchTeam = 0;
+  s.history.push(entry);
   if (s.history.length > 300) s.history.splice(0, s.history.length - 300);
   // Ending freezes the game; the next one starts only from New game.
   s.cur.ended = s.history.at(-1).end;
   noticeUntil = 0;
+  clearTimeout(clearTimer);
   if (s.recaps) showRecap(result, event ? result.reduce((n,p)=>n+p.chests,0) : s.history.at(-1).teamChests, s.history.at(-1));
+  // Without a recap (or if it never reports back) clear the counts anyway.
+  clearTimer = setTimeout(clearEnded, s.recaps ? 45000 : 4000);
+  render();
+}
+let clearTimer = 0;
+function clearEnded() {
+  clearTimeout(clearTimer);
+  if (!s.cur.ended || s.cur.cleared) return;
+  s.cur.cleared = true;
   render();
 }
 function showRecap(players, teamTotal, match) {
@@ -724,6 +808,7 @@ function startGame(start) {
   net.players = net.players.map(p => ({ ...p, chests:0, teamChests:0, streak:0, bestStreak:0, matchStart:start }));
   teammateCounts.clear();
   resetTeammateCredits();
+  tierSeen.clear();
   soloOpenings.reset(); soloOpenings.observe(s.id, 0);
   noticeUntil = 0;
   render();
@@ -771,7 +856,7 @@ $('odds').onchange = e => { s.odds = Math.max(1, +e.target.value || DEF.odds); r
 $('matches').onchange = e => { s.matches = Math.max(0, Math.floor(+e.target.value) || 0); render(); };
 $('reset').onclick = () => {
   if (!confirm('Reset chest and match counts to zero? Match history is kept.')) return;
-  s.chests = s.teamChests = s.matches = 0; s.cpm = { matches:0, chests:0, teamMatches:0, team:0 }; s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); resetTeammateCredits(); session = newSession(); render();
+  s.chests = s.teamChests = s.matches = 0; s.cpmFrom = Date.now(); s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); resetTeammateCredits(); session = newSession(); render();
 };
 $('quit').onclick = () => window.api.quit();
 
@@ -785,6 +870,9 @@ window.api.onAction(a => {
 window.api.onNet(d => {
   const keepErr = d.error !== undefined ? d.error : '';
   const next = Object.assign({ players:[] }, d, { error: keepErr });
+  // The relay reports how long each streak has left; turn that into a deadline.
+  const received = Date.now();
+  next.players = (next.players || []).map(p => 'streakLeft' in p ? { ...p, streakUntil:received + (Number(p.streakLeft) || 0) } : p);
   checkOvertakes(net, next);
   checkStreakBreaks(net, next);
   const joinedLive = s.cur.ended && next.status === 'client' && !next.ended;
@@ -794,10 +882,42 @@ window.api.onNet(d => {
   if (!['host', 'client'].includes(net.status)) { noticeUntil = 0; pendingOpen = null; }
   if (net.status === 'host' || net.status === 'client') syncTeamChests(net.players);
   else teammateCounts.clear();
+  syncParty();
+  checkTierUps(rankedPlayers());
   render();
 });
 
 window.api.onMatchEnd?.(finishMatch);
+// ---------- Party sync ----------
+// Whenever someone new is in the room, send them every signed result we hold;
+// they do the same, so both sides end up with the same matches.
+let sharedWith = new Set(), shareQueue = [], shareTimer = 0;
+function shareHistory() {
+  shareQueue = proofChunks(s);
+  clearTimeout(shareTimer);
+  const next = () => {
+    const chunk = shareQueue.shift();
+    if (!chunk || !['host', 'client'].includes(net.status)) return;
+    window.api.netShare?.(chunk);
+    shareTimer = setTimeout(next, 150);
+  };
+  next();
+}
+function syncParty() {
+  if (!['host', 'client'].includes(net.status)) { sharedWith = new Set(); return; }
+  const fresh = net.players.filter(p => p.id && p.id !== s.id && !sharedWith.has(p.id));
+  if (!fresh.length) return;
+  for (const p of fresh) sharedWith.add(p.id);
+  shareHistory();
+}
+window.api.onShared?.(async m => {
+  const proofs = (m.proofs || []).filter(p => p && typeof p.data === 'string' && typeof p.sig === 'string');
+  if (!proofs.length || !window.api.verifyProofs) return;
+  const results = await window.api.verifyProofs(proofs);
+  const merged = mergeSignedMatches(s, proofs.map((proof, i) => ({ proof, result:results[i] })), s.id);
+  if (merged.mine || merged.others) render();
+});
+window.api.onRecapDone?.(clearEnded);
 window.api.onMatchStart?.(e => {
   if (s.cur.ended) startGame(e.start);
   const open = pendingOpen; pendingOpen = null;
@@ -805,7 +925,7 @@ window.api.onMatchStart?.(e => {
 });
 window.api.onConfigure?.(patch => {
   if (['personal', 'team', 'merged', 'both'].includes(patch.countMode)) s.countMode = patch.countMode;
-  for (const key of ['compact', 'recaps', 'streakPopups', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
+  for (const key of ['compact', 'recaps', 'streakPopups', 'bestPopups', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
   if (typeof patch.name === 'string') s.name = patch.name.slice(0,20);
 
   if (Number.isFinite(patch.opacity)) s.opacity = Math.max(0, Math.min(100, patch.opacity));
@@ -819,13 +939,15 @@ window.api.onCommand?.(command => {
   else if (command === 'newGame') newGame();
   else if (command === 'newSession') { session = newSession(); render(); }
   else if (command === 'reset' && net.status === 'off') {
-    s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0; s.cpm = { matches:0, chests:0, teamMatches:0, team:0 };
+    s.chests = s.teamChests = s.matches = s.streak = s.bestStreak = 0; s.cpmFrom = Date.now();
     s.cur = { chests:0, teamChests:0, start:Date.now() }; soloOpenings.reset(); soloOpenings.observe(s.id, 0); session = newSession(); render();
   }
 });
 
 setInterval(renderSession, 1000);
 setInterval(renderClock, 1000);
+// Streaks run out on their own, so the roster redraws while one is live.
+setInterval(() => { if (!s.hidden && rankedPlayers().some(p => p.streak)) renderRoster(); }, 500);
 setInterval(() => window.api.snapshot?.({ s, net, session:sessionStats(), keys:KEYS, keyOk }), 1000);
 setInterval(renderNotice, 250);
 render();

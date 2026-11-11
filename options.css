@@ -207,3 +207,8 @@ details .recap-meta,details .recap-highlight{text-align:left}
   .row.stack{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.badges{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px}
+.badge{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10.5px;font-weight:600;background:rgba(255,255,255,.07);color:#bec9d9}
+.badge.streak{color:#c99465;background:rgba(201,148,101,.13)}
+.badge.synced{color:#8f96a3;font-weight:500}

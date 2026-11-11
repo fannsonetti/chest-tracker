@@ -49,10 +49,11 @@
   <h2>Popups &amp; sound</h2>
   <div class="group">
     <label class="row"><span>Match recap<small>Steps through total, chest share, streaks and timeline under the MiniHUD, then hides. Honors reduced motion.</small></span><input type="checkbox" class="switch" id="recaps"></label>
-    <label class="row"><span>Streak taken over<small>Shows briefly when someone starts a new streak and ends the active one.</small></span><input type="checkbox" class="switch" id="streakPopups"></label>
+    <label class="row"><span>Streak popups<small>When the streak lead changes hands, and when your streak or the leader’s reaches a new flame colour.</small></span><input type="checkbox" class="switch" id="streakPopups"></label>
+    <label class="row"><span>Personal best<small>A gold pill the moment you pass your best counted game.</small></span><input type="checkbox" class="switch" id="bestPopups"></label>
     <div class="row"><label for="sound">Chest click sound<small>Plays when a count changes, including global shortcuts.</small></label><span class="inline"><button id="testSound" class="ghost">Test</button><input type="checkbox" class="switch" id="sound"></span></div>
   </div>
-  <p class="note">Streaks need at least two players. Two openings before the holder opens again take the streak over; a single opening by someone else never breaks it.</p>
+  <p class="note">Everyone runs their own streak: open chests within 90s of each other to keep it going. The biggest live streak leads, and the leader only gets 60s between chests, so a lead needs pace. Pass the leader’s streak to take the lead; the leader you pass drops to 0.</p>
   <h2>Global shortcuts</h2>
   <p class="lede">Click a binding, then press the new shortcut. Escape cancels, Backspace clears.</p>
   <div class="group" id="keys"></div>
@@ -95,7 +96,7 @@
   </div>
   <div id="podium"></div>
   <div id="leaderboardRows" aria-live="polite"></div>
-  <p class="note">10 points per chest, +10% per streak level, ×2 duos, ×3 trios, ×4 squads · party points are scored and signed by the relay · averages skip matches under 5 chests · up to 300 saved matches · lobbies above four players are excluded</p>
+  <p class="note">0.25 points per chest, +10% per streak level while you lead, 1 point each for the first and last chest of a party game, ×2 duos, ×3 trios, ×4 squads · party points are scored and signed by the relay · only games of 3+ minutes and 5+ chests count · up to 300 saved matches · lobbies above four players are excluded</p>
 </section>
 
 <section id="career" hidden>
