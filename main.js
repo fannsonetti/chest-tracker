@@ -108,11 +108,23 @@ ipcMain.handle('getSnapshot', () => ({ ...snapshot, update:updateStatus, version
 ipcMain.on('configure', (_, data) => toUI('configure', data));
 ipcMain.on('command', (_, data) => toUI('command', data));
 
+// The HUD reopens where you last dragged it, if that spot is still on a screen.
+const hudFile = () => path.join(app.getPath('userData'), 'hud-position.json');
+function savedHudBounds() {
+  try {
+    const b = JSON.parse(require('fs').readFileSync(hudFile(), 'utf8'));
+    if (![b.x, b.y, b.width].every(Number.isFinite)) return null;
+    const { workArea:a } = screen.getDisplayMatching({ x:b.x, y:b.y, width:b.width, height:40 });
+    const visible = b.x + b.width > a.x + 20 && b.x < a.x + a.width - 20 && b.y >= a.y - 10 && b.y < a.y + a.height - 20;
+    return visible ? b : null;
+  } catch { return null; }
+}
 function create() {
   const { workArea } = screen.getPrimaryDisplay();
+  const saved = savedHudBounds();
   win = new BrowserWindow({
-    icon: ICON, width: W, height: 200,
-    x: workArea.x + workArea.width - W - 12, y: workArea.y + 12,
+    icon: ICON, width: saved?.width || W, height: 200,
+    x: saved ? saved.x : workArea.x + workArea.width - W - 12, y: saved ? saved.y : workArea.y + 12,
     frame: false, transparent: true, alwaysOnTop: true, resizable: false, show: false,
     // Never take focus: clicking the HUD mid-game must not pull focus from the game.
     focusable: false, skipTaskbar: true, hasShadow: false,
@@ -120,6 +132,11 @@ function create() {
   });
   // Show once painted (no empty transparent frame), without taking focus.
   win.once('ready-to-show', () => { win.showInactive(); pinOnTop(); });
+  // Width is saved too, so the edge the HUD grows from lands in the same place.
+  win.on('moved', () => {
+    const { x, y, width } = win.getBounds();
+    try { require('fs').writeFileSync(hudFile(), JSON.stringify({ x, y, width })); } catch {}
+  });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   pinOnTop();
   // Some games and apps grab the topmost slot when focused; take it back.
