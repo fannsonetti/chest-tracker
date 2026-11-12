@@ -166,7 +166,7 @@ test('a live streak schedules a roster update for the moment it runs out; leader
     const roster = await hostMsg('roster');
     const f = roster.players.find(p => p.id === 'friend');
     assert.equal(f.streak,3); assert.equal(f.lead,true);
-    assert.ok(f.streakLeft > 42000 && f.streakLeft <= 45000, 'the leader has 45s');
+    assert.ok(f.streakLeft > 57000 && f.streakLeft <= 60000, 'the leader has 60s');
     assert.equal(roster.players.find(p => p.id === 'host').lead,false);
     assert.ok(rooms.get(created.code).expiry, 'a roster update is scheduled for when it runs out');
   } finally {
