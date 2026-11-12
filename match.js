@@ -31,19 +31,19 @@ const POINTS_PER_CHEST = 0.25;
 // Results signed before 1.2.2 (v1) scored 10 per chest; they count at 1/40.
 const LEGACY_POINT_SCALE = 1 / 40, POINTS_VERSION = 2;
 // Streak tiers by length: Ember (red), Flare (orange), Solar (yellow), Plasma
-// (blue) and Nebula (purple), then three rare ones: Aurora at 20 (flowing
-// cyan-green light), Quasar at 25 (white-blue radiance round a spinning disk)
-// and Singularity at 30 (a black flame traced by a white corona).
+// (blue) and Nebula (purple), then three rare ones: Aurora at 50 (flowing
+// cyan-green light), Quasar at 75 (white-blue radiance round a spinning disk)
+// and Singularity at 100 (a black flame traced by a white corona).
 // TIER_ORDER runs lowest to highest. Their reveals live in milestones.js.
-const STREAK_TIERS = [[30, 'singularity'], [25, 'quasar'], [20, 'aurora'], [15, 'purple'], [12, 'blue'], [9, 'yellow'], [6, 'orange']];
+const STREAK_TIERS = [[100, 'singularity'], [75, 'quasar'], [50, 'aurora'], [40, 'purple'], [30, 'blue'], [20, 'yellow'], [10, 'orange']];
 const TIER_ORDER = ['red', ...STREAK_TIERS.map(t => t[1]).reverse()];
 const TIER_MIN = Object.fromEntries([[MIN_STREAK, 'red'], ...STREAK_TIERS].map(([n, t]) => [t, n]));
 const TIER_LABEL = { red:'Ember', orange:'Flare', yellow:'Solar', blue:'Plasma', purple:'Nebula', aurora:'Aurora', quasar:'Quasar', singularity:'Singularity' };
 const streakTier = n => (STREAK_TIERS.find(([min]) => n >= min) || [0, 'red'])[1];
 // A streak's place in TIER_ORDER; -1 below MIN_STREAK, so reaching 3 is a step up to Ember.
 const tierRank = n => n >= MIN_STREAK ? TIER_ORDER.indexOf(streakTier(n)) : -1;
-// Overtaken: your streak falls to the start of the tier below yours (Solar 9+
-// to 6, Quasar 25+ to 20). Ember has nothing below, so it ends.
+// Overtaken: your streak falls to the start of the tier below yours (Solar 20+
+// to 10, Quasar 75+ to 50). Ember has nothing below, so it ends.
 const droppedStreak = n => { const r = tierRank(n); return r > 0 ? TIER_MIN[TIER_ORDER[r - 1]] : 0; };
 const MAX_MULTIPLIER = 4, AWARD_POINTS = 1, LEAD_POINTS_PER_SEC = 0.01;
 const multiplier = size => Math.max(1, Math.min(MAX_MULTIPLIER, Math.floor(size) || 1));
