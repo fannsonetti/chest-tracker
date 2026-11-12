@@ -210,12 +210,9 @@ function open(s, id, at) { s.observe(id, (s.counts.get(id) || 0) + 1, at); }
 test('everyone runs their own streak at once; a gap past the window starts you over', () => {
   const s = duo();
   open(s,'a',sec(0)); open(s,'a',sec(5)); open(s,'a',sec(10));   // a: 3, leads (window 45s)
-  open(s,'b',sec(3)); open(s,'b',sec(9)); open(s,'b',sec(15));   // b: 3 at the same time, ties stay with a
-  assert.equal(s.current('a',sec(16)),3); assert.equal(s.current('b',sec(16)),3);
-  assert.equal(s.leader(sec(16)),'a');
-  assert.equal(s.leader(sec(57)),'b', "a's 45s ran out at 55s; b's runs to 60s");
-  open(s,'a',sec(58));
-  assert.equal(s.current('a',sec(58)),0, 'a starts over at 1');
+  open(s,'b',sec(3)); open(s,'b',sec(9)); open(s,'b',sec(15));   // b ties at 3 later: b takes the lead, and Ember a ends
+  assert.equal(s.current('a',sec(16)),0); assert.equal(s.current('b',sec(16)),3);
+  assert.equal(s.leader(sec(16)),'b');
   assert.equal(s.current('b',sec(58)),3);
   assert.equal(s.current('b',sec(61)),0, 'b ran out at 60s');
   assert.equal(s.leader(sec(61)),null);
@@ -241,7 +238,7 @@ test('being passed drops you to the tier below; passing back retakes the lead', 
   for (let i=0; i<21; i++) open(s,'b',sec(20+i));                    // b passes at 21
   assert.equal(s.leader(sec(40)),'b');
   assert.equal(s.current('a',sec(40)),10, 'Solar drops to 10');
-  assert.deepEqual(s.streakOf('a',sec(40)), { n:10, left:30000, window:30000 }, 'with a fresh Flare window');
+  assert.deepEqual(s.streakOf('a',sec(40)), { n:10, left:29000, window:30000 }, 'with a fresh Flare window, started when b tied at 20');
   open(s,'a',sec(41)); assert.equal(s.current('a',sec(41)),11, 'and climbs on from there');
   const e = duo();
   open(e,'a',sec(0)); open(e,'a',sec(1)); open(e,'a',sec(2));      // a leads at Ember 3
@@ -258,17 +255,15 @@ test('passing the leader takes the lead; the streak bonus only counts while you 
   near(openingPoints(0,1),0.25); near(openingPoints(2,2),0.5); near(openingPoints(3,2),0.65); near(openingPoints(3,3),0.975); near(openingPoints(0,9),1);
   const s = duo();
   open(s,'a',sec(1)); open(s,'a',sec(2)); open(s,'a',sec(3));          // 0.5, 0.5, then a streak of 3 leads (0.65)
-  open(s,'b',sec(4)); open(s,'b',sec(5)); open(s,'b',sec(6));          // 0.5 each: b trails, then ties
-  assert.equal(s.leader(sec(6)),'a', 'a tie stays with the leader');
-  open(s,'b',sec(7));                                                   // b passes: 4 while leading, (0.25+0.1)x2
-  assert.equal(s.leader(sec(7)),'b');
-  near(s.score('a',sec(7)),1.65 + 2 + 0.04, 'plus the first chest x2, plus 4s leading at 0.01/s x1 other player');
-  near(s.score('b',sec(7)),1.5 + 0.7 + 2, 'plus the last chest, x2');
-  near(s.score('b',sec(17)),4.2 + 0.1, 'b earns while leading');
-  near(s.score('b',sec(99)),4.2 + 0.45, 'until the streak runs out');
-  s.stop(sec(12)); near(s.score('b',sec(99)),4.2 + 0.05, 'and stops when the match ends');
-  open(s,'b',sec(8)); s.observe('b',4,sec(8));                          // a correction takes one back
-  assert.equal(s.current('b',sec(8)),4);
+  open(s,'b',sec(4)); open(s,'b',sec(5)); open(s,'b',sec(6));          // 0.5 each: b trails, then ties and takes the lead
+  assert.equal(s.leader(sec(6)),'b', 'a tie goes to whoever got there last');
+  near(s.score('a',sec(6)),1.65 + 2 + 0.03, 'plus the first chest x2, plus 3s leading at 0.01/s x1 other player');
+  near(s.score('b',sec(6)),1 + 0.65 + 2, 'plus the last chest, x2');
+  near(s.score('b',sec(16)),3.65 + 0.1, 'b earns while leading');
+  near(s.score('b',sec(99)),3.65 + 0.45, 'until the streak runs out');
+  s.stop(sec(11)); near(s.score('b',sec(99)),3.65 + 0.05, 'and stops when the match ends');
+  open(s,'b',sec(7)); s.observe('b',3,sec(7));                          // a correction takes one back
+  assert.equal(s.current('b',sec(7)),3);
 });
 
 test('corrections, baselines and resets: only openings seen live count, and fixes stay exact', () => {

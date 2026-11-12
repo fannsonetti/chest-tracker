@@ -1161,7 +1161,7 @@ function playOvertake(host, { dir = 'victory', hero, rival, reduced, onEnd } = {
     el.append(b, n, small); root.append(el);
     return { who, el, b, n, small, count, down, subAt, shown:null, w:0, sw:0 };
   };
-  const { roll, swap } = scene, falls = (tier, p) => tier === otTier(p.from) && p.to ? '' : tier ? 'Drops to ' + TIER_LABEL[tier] : 'Streak over';
+  const { roll, swap } = scene, falls = (tier, p) => tier === otTier(p.from) && p.to || tier ? '' : 'Streak over';
   const tags = [
     tag('hero', hero, heroTier, t => defeat ? Math.round(lerp(hero.from, hero.to, smooth(t, roll, roll + .5))) : t < roll ? hero.from : hero.to,
       defeat ? roll : Infinity, defeat ? falls(dropped, hero) : 'In the lead', defeat ? roll + .35 : swap[1]),

@@ -151,7 +151,7 @@ class OpeningStreaks {
         leader = leaderAt(runs, leader, e.at);
         const run = runs.get(e.id);
         const n = run && run.deadline >= e.at ? run.n + 1 : 1;
-        if (n >= MIN_STREAK && e.id !== leader && (!leader || n > runs.get(leader).n)) {
+        if (n >= MIN_STREAK && e.id !== leader && (!leader || n >= runs.get(leader).n)) {   // a tie goes to whoever got there last
           // The passed leader drops a tier and starts that tier's full window.
           if (leader) { const n = droppedStreak(runs.get(leader).n), window = streakWindow(n); runs.set(leader, { n, deadline:e.at + window, window }); }
           leader = e.id;

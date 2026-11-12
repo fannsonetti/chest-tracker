@@ -9,11 +9,9 @@ app.on('before-quit', () => { quitting = true; });
 const W = 248;
 let win;
 let optionsWin;
-// Popups are a second HUD-styled overlay that never takes focus. A streak
-// popup sits at the top middle of the HUD's screen; a match recap sits in the
-// middle. The popup page reports its kind and content size.
-// STREAK_TOP is where a pill's panel sits; the window starts `pad` above it
-// to leave room for glow and effects (popup.js), never above the screen.
+// Popups use a second overlay that never takes focus. Streak and achievement
+// scenes sit at the top middle of the HUD's screen, with room above the focal
+// point for effects. Match recaps are centred. The page reports its size and pad.
 const POPUP_W = 300, STREAK_TOP = 72;
 let popupWin, popupReady = false, pendingPopups = [], popupKind = 'recap', popupSize = { w:POPUP_W, h:120 }, popupPad = 0;
 const ICON = path.join(__dirname, 'icon.png');
@@ -56,8 +54,7 @@ ipcMain.handle('getPopups', event => {
 ipcMain.on('popupResize', (event, size) => {
   if (!fromPopup(event) || !size || typeof size !== 'object') return;
   placePopup(size);
-  // The streak pill shows mid-game: let the mouse pass through it so hovering
-  // never pulls focus from the game. Recaps show after a game and stay clickable.
+  // Let the mouse pass through in-game scenes. Recaps stay clickable.
   popupWin.setIgnoreMouseEvents(popupKind !== 'recap');
   if (!popupWin.isVisible()) { popupWin.setAlwaysOnTop(true, 'screen-saver'); popupWin.showInactive(); }
 });

@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><title>Chest Tracker · Popup</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
 <link rel="stylesheet" href="tiers.css">
+<link rel="stylesheet" href="achievements.css">
 <style>
   /* Matches the MiniHUD panel (index.html): same tokens, type and surface. */
   :root {
@@ -143,66 +144,14 @@
   .legend { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 9px; font-size: 12px; color: var(--muted); }
   .legend span { display: flex; align-items: center; }
 
-  /* The flame scenes draw into a transparent square that never takes the mouse. */
+  /* The streak and achievement scenes use a transparent, click-through stage. */
   #panel.reveal-kind { width: 360px; padding: 0; background: none; border: 0; border-radius: 0; overflow: visible; pointer-events: none; }
   #panel.reveal-kind #bar, #panel.reveal-kind #steps, #panel.reveal-kind #label { display: none; }
   #panel.reveal-kind.compact { width: 190px; }
   #panel.reveal-kind.in { opacity: 1; animation: none; }
   #panel.reveal-kind.out { animation: fade-out .25s ease-in both; }
-  #panel.death-kind.out { animation: none; }
+  #panel.scene-exits.out { animation: none; }
   #panel.reveal-kind .stage { transform: none; filter: none; transition: none; }
-
-  /* Pills (personal best): only the feat itself. */
-  #panel.pill-kind { position: relative; overflow: visible; width: max-content; max-width: 460px; border-radius: 999px; padding: 9px 24px 9px 14px; }
-  body.pill-body { padding: var(--pad, 28px); }   /* room for glow and sparks: popup.js PILL_PAD / RARE pad */
-  #panel.pill-kind #bar, #panel.pill-kind #steps, #panel.pill-kind #label { display: none; }
-  #panel.pill-kind.in { animation-name: drop-in; animation-duration: .5s; }
-  #panel.pill-kind.out { animation-name: rise-out; animation-duration: .26s; }
-  #panel.pill-kind .stage { transform: none; filter: none; transition: none; }
-
-  .best { display: flex; align-items: center; gap: 12px; }
-  .pill-kind .flame { position: relative; z-index: 1; width: 30px; height: 34px; flex: none; display: grid; place-items: center; }
-  .pill-kind .line { height: 28px; display: flex; align-items: center; gap: 9px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
-
-  /* Personal best and record. --at is the moment the feat lands (popup.js).
-     The rarer the moment (--hype 1-7), the bigger the swell, the more sparks,
-     and from .big a second shockwave and a jolt, from .huge a flash. */
-  .pill-kind .text { position: relative; z-index: 1; display: flex; flex-direction: column; }
-  .kicker { font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--to); opacity: .9; margin-bottom: -3px; animation: name-in .4s calc(var(--at) + .05s) var(--ease-out) both; }
-  .burst .flame::before, .burst .flame::after { content: ''; position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%;
-    border: 2px solid var(--to); box-shadow: 0 0 8px var(--to-glow); opacity: 0; pointer-events: none; animation: wave .75s var(--at) ease-out; }
-  .burst .flame::after { display: none; animation-delay: calc(var(--at) + .22s); }
-  .burst.big .flame::after { display: block; }
-  .spark { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: var(--to); box-shadow: 0 0 6px var(--to-glow); opacity: 0;
-    animation: spark .8s calc(var(--at) + var(--t)) cubic-bezier(.2, .7, .3, 1) forwards; }
-  .best.record .spark:nth-child(3n) { background: #fff; }
-  .burst .line { font-size: calc(19px + var(--hype) * .8px); }
-  #panel[data-hype] { border-color: color-mix(in srgb, var(--edge) 55%, transparent);
-    box-shadow: 0 0 calc(var(--hype) * 5px) var(--glow), inset 0 0 calc(var(--hype) * 3px) color-mix(in srgb, var(--glow) 40%, transparent); }
-  /* The new colour's edge and glow, faded in over the old at --at. */
-  #panel.pill-kind::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0;
-    border: 1px solid color-mix(in srgb, var(--edge2, transparent) 70%, transparent);
-    box-shadow: 0 0 calc(var(--hype, 0) * 6px) var(--glow2, transparent), inset 0 0 calc(var(--hype, 0) * 3px) color-mix(in srgb, var(--glow2, transparent) 40%, transparent); }
-  #panel.in[data-hype]::after { animation: fade-in .35s var(--at) forwards; }
-  #panel.in.hype-big { animation: drop-in .5s var(--ease-out) both, jolt .45s calc(var(--at) + .05s) ease-in-out; }
-  #panel.pill-kind::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--glow2, var(--glow)); opacity: 0; pointer-events: none; }
-  #panel.in.hype-huge::before { animation: flash .7s var(--at) ease-out; }
-  .best.huge .line { background: linear-gradient(100deg, var(--fg) 40%, #fff 50%, var(--fg) 60%) 200% 0 / 250% 100%; -webkit-background-clip: text; background-clip: text;
-    color: transparent; animation: name-in .4s .25s var(--ease-out) both, shimmer 1.6s 1s ease-in-out 2; }
-
-  /* Personal best / record: a gold trophy that pops in. */
-  #panel.best-kind { border-color: rgba(230, 189, 103, .35); }
-  .best .trophy { width: 28px; height: 28px; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round;
-    filter: drop-shadow(0 0 6px rgba(230, 189, 103, .55)); animation: pop .5s .15s var(--spring) both, trophy-up .7s .45s var(--spring); }
-  .best.record .trophy { width: 32px; height: 32px; filter: drop-shadow(0 0 10px rgba(245, 200, 76, .85)); }
-  .best .line { font-variant-numeric: tabular-nums; animation: name-in .4s .25s var(--ease-out) both; }
-  @keyframes wave { 0% { opacity: .9; transform: scale(.4); } 100% { opacity: 0; transform: scale(calc(1.6 + var(--hype, 1) * .35)); } }
-  @keyframes spark { 0% { opacity: 1; transform: rotate(var(--a)) translateX(4px) scale(1.2); } 100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) scale(.3); } }
-  @keyframes jolt { 20% { transform: translateX(-3px) rotate(-.6deg); } 40% { transform: translateX(3px) rotate(.6deg); } 60% { transform: translateX(-2px); } 80% { transform: translateX(1px); } }
-  @keyframes flash { 0% { opacity: 0; } 20% { opacity: .55; } 100% { opacity: 0; } }
-  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -50% 0; } }
-  @keyframes trophy-up { 45% { transform: scale(calc(1.1 + var(--hype, 1) * .07)) rotate(-8deg); } }
-
 
   @keyframes fill { to { transform: scaleX(1); } }
   @keyframes grow { to { transform: scaleX(1); } }
@@ -214,21 +163,13 @@
   @keyframes glint { to { transform: translateX(100%); } }
   @keyframes card-in { from { opacity: 0; transform: scale(.94) translateY(10px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
   @keyframes card-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.97); filter: blur(3px); } }
-  @keyframes drop-in { from { opacity: 0; transform: translateY(-110%) scale(.92); } 60% { opacity: 1; } to { opacity: 1; transform: none; } }
-  @keyframes rise-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-70%) scale(.96); } }
   @keyframes fade-out { to { opacity: 0; } }
-  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes name-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) {
     #panel, .stage { transition: none; transform: none; filter: none; }
-    #panel.in, #panel.out, #panel.pill-kind.in, #panel.pill-kind.out { animation: none; }
+    #panel.in, #panel.out { animation: none; }
     #panel.out { opacity: 0; }
     .rise, .pop, .stage.now .rise, .stage.now .pop { animation: none; opacity: 1; transform: none; }
     .award::after, .ticker .note, .race b.bump { animation: none; }
-    .best .trophy, .best .line, .kicker, .burst .flame::before, .burst .flame::after, #panel.pill-kind::before { animation: none; }
-    #panel[data-hype]::after { animation: none; opacity: 1; }
-    .spark { display: none; }
-    #panel[data-hype].in { animation: none; }
     .stage.now .share .track i, .stage.now .chart .line { animation: none; transform: none; stroke-dashoffset: 0; }
     .share .track i { transform: none; }
     .chart .line { stroke-dashoffset: 0; }
@@ -244,5 +185,5 @@
   <div id="label"></div>
   <div id="stages"></div>
 </div>
-<script src="match.js"></script><script src="milestones.js"></script><script src="streak-deaths.js"></script><script src="streak-overtakes.js"></script><script src="popup.js"></script>
+<script src="match.js"></script><script src="milestones.js"></script><script src="streak-deaths.js"></script><script src="streak-overtakes.js"></script><script src="achievements.js"></script><script src="popup.js"></script>
 </body></html>
