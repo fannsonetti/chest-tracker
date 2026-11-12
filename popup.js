@@ -63,6 +63,17 @@ function tierStage(item) {
 }
 let sceneRun = null;
 const stopScene = () => { sceneRun?.stop(); sceneRun = null; };
+// Sound routing. Legacy Notification Sounds plays the original sounds below
+// exactly as before (the HUD plays your streak's falling tone). Otherwise a
+// scene gets its redesigned cue (notification-sounds.js), started with the
+// scene and stopped with it; other players' moments play it quieter.
+const legacySound = item => item.sound !== false && !!item.legacySounds;
+function withSound(run, item, cue) {
+  if (!run || !cue || item.sound === false || item.legacySounds) return run;
+  const others = item.kind === 'streakBroken' && !item.mine && !item.byMe;
+  const stop = window.notificationSound?.({ gain:others ? .55 : 1, ...cue });
+  return stop ? { ...run, stop() { run.stop(); stop(); } } : run;
+}
 
 // A rising chime: more notes, higher, the rarer the moment.
 function hypeSound(hype = 1) {
@@ -171,7 +182,7 @@ function show(item) {
     $('sub').textContent = clock(Math.max(0, (m.end || 0) - (m.start || 0))) + ' · ' + (players > 1 ? 'squad of ' + players : 'solo');
   } else if (item.kind === 'streakTier') {
     stages = [tierStage(item)];
-    if (item.mine && item.sound !== false) setTimeout(hypeSound, (stages[0].at - .1) * 1000, stages[0].hype);
+    if (item.mine && legacySound(item)) setTimeout(hypeSound, (stages[0].at - .1) * 1000, stages[0].hype);
   } else if (item.kind === 'personalBest') {
     stages = [{ key:'achievement', achievement:item, html:'<div></div>' }];
   } else if (item.kind === 'streakLost' || (item.kind === 'streakBroken' && !item.lossAlreadyShown && item.dropTo === 0 && item.n >= MIN_STREAK && !(item.newN > item.n))) {
@@ -188,7 +199,7 @@ function show(item) {
   $('steps').innerHTML = stages.map((s, i) => '<button aria-label="Show ' + esc(s.label || 'popup') + '" data-i="' + i + '"><i></i></button>').join('');
   for (const b of $('steps').children) b.onclick = e => { e.stopPropagation(); go(Number(b.dataset.i)); };
   panel.classList.add('in');
-  if (reveal) sceneRun = playMilestone($('stages').querySelector('.reveal'), reveal.tier, reveal);
+  if (reveal) sceneRun = withSound(playMilestone($('stages').querySelector('.reveal'), reveal.tier, reveal), item, !reveal.compact && item.mine && { type:'milestone', tier:reveal.tier });
   go(0);
   fit();
 }
@@ -203,17 +214,17 @@ function go(i) {
   }
   if (stages[i].death) {
     const { tier, ...options } = stages[i].death;
-    sceneRun = playStreakDeath(nodes[i].firstElementChild, tier, { ...options, onEnd:next });
+    sceneRun = withSound(playStreakDeath(nodes[i].firstElementChild, tier, { ...options, onEnd:next }), current, { type:'death', tier });
     return;
   }
   if (stages[i].overtake) {
-    sceneRun = playOvertake(nodes[i].firstElementChild, { ...stages[i].overtake, onEnd:next });
+    sceneRun = withSound(playOvertake(nodes[i].firstElementChild, { ...stages[i].overtake, onEnd:next }), current, { type:'overtake', ...stages[i].overtake });
     return;
   }
   if (stages[i].achievement) {
     const item = stages[i].achievement;
-    const onImpact = item.sound === false ? undefined : () => hypeSound(item.record ? 7 : 2);
-    sceneRun = playAchievement(nodes[i].firstElementChild, item, { onImpact, onEnd:next });
+    const onImpact = legacySound(item) ? () => hypeSound(item.record ? 7 : 2) : undefined;
+    sceneRun = withSound(playAchievement(nodes[i].firstElementChild, item, { onImpact, onEnd:next }), item, { type:'achievement', record:!!item.record });
     return;
   }
   const length = stages[i].ms || STAGE_MS;

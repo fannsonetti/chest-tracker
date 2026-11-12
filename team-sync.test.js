@@ -427,11 +427,12 @@ test('relays before 1.2.2 (one holder, no timers) still show the takeover', () =
 });
 
 test('a personal streak loss and lead handoff play one death in either order', () => {
-  for (const clockFirst of [false, true]) {
+  // Legacy sounds play the falling tone from here; redesigned ones play in the popup, with its scene.
+  for (const [clockFirst, legacy] of [[false, true], [true, true], [false, false], [true, false]]) {
     const t = tracker();
     const id = t.run('s.id');
-    t.run(`s.hidden = true; s.sound = true; s.cur.chests = 100;
-      window.lossSounds = 0; window.playStreakLost = () => window.lossSounds++;
+    t.run(`s.hidden = true; s.sound = true; s.cur.chests = 100; s.legacySounds = ${legacy};
+      window.lossSounds = 0; window.playStreakLost = () => window.lossSounds++; window.notificationSound = () => window.lossSounds += 10;
       window.popups = []; window.api.showPopup = p => window.popups.push(p);`);
     const own = { id, name:'You', chests:100, matchStart:100, streak:100, streakLeft:8000, lead:true };
     const next = { ...peer(20), streak:20, streakLeft:16000, lead:false };
@@ -449,7 +450,8 @@ test('a personal streak loss and lead handoff play one death in either order', (
     assert.equal(handoff.dropTo, 0);
     assert.equal(handoff.n, 100);
     assert.equal(popups.filter(p => p.kind === 'streakLost').length, clockFirst ? 1 : 0);
-    assert.equal(t.run('window.lossSounds'), 1);
+    assert.equal(t.run('window.lossSounds'), legacy ? 1 : 0);
+    assert.ok(popups.every(p => p.sound === true && p.legacySounds === legacy));
   }
 });
 

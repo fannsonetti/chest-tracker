@@ -5,7 +5,7 @@
   "description": "Always-on-top chest tracker overlay",
   "main": "main.js",
   "scripts": {
-    "test": "node --test team-sync.test.js match.test.js hosted-connection.test.js relay/server.test.js",
+    "test": "node --test team-sync.test.js match.test.js notification-sounds.test.js hosted-connection.test.js relay/server.test.js",
     "start": "electron .",
     "dist": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable",
@@ -29,6 +29,7 @@
       "achievements.css",
       "achievements.js",
       "sound.js",
+      "notification-sounds.js",
       "click.wav",
       "icon.png",
       "hosted-connection.js",

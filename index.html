@@ -271,6 +271,7 @@
 </div>
 <script src="match.js"></script>
 <script src="sound.js"></script>
+<script src="notification-sounds.js"></script>
 <script>
 // Browser fallback so the page can be previewed outside Electron.
 window.api = window.api || { onAction(){}, resize(){}, quit(){}, setKeys: async k => Object.fromEntries(Object.keys(k).map(a => [a, true])), pauseKeys(){}, resumeKeys(){}, onNet(){}, netState(){}, netHost(){}, netJoin(){}, netLeave(){} };
@@ -289,7 +290,7 @@ const DEF = {
   // CPM averages counted games in history that ended after cpmFrom (Reset counts).
   cpmFrom:0,
   history:[], shared:[], name:'', id:'', v:5, compact:true, opacity:88,
-  countMode:'both', recaps:true, streakPopups:true, bestPopups:true, sound:true, streak:0, bestStreak:0, minimalUI:1,
+  countMode:'both', recaps:true, streakPopups:true, bestPopups:true, sound:true, legacySounds:false, streak:0, bestStreak:0, minimalUI:1,
   keys:{ chestUp:'numadd', chestDown:'numsub', match:'F8', toggle:'F9', options:'F10' },
 };
 let s;
@@ -468,10 +469,10 @@ function checkStreakBreaks(previous, current) {
     // successor. Match the old run so only one death plays in either order.
     lossAlreadyShown = ownLoss?.matchStart === was.matchStart && ownLoss?.chests === was.chests && ownLoss?.streak === was.streak;
     ownStreak = 0;
-    if (!lossAlreadyShown && s.sound) window.playStreakLost?.();
+    if (!lossAlreadyShown && s.sound) streakLostSound(streakTier(n));
   }
   window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:now.name, n, newN:asStreak(now.streak || 0), dropTo,
-    mine, byMe:now.id === s.id, lossAlreadyShown, opacity:s.opacity, sound:s.sound });
+    mine, byMe:now.id === s.id, lossAlreadyShown, ...popupSound() });
 }
 // A milestone reveal (milestones.js) the moment anyone's streak reaches a new flame colour
 // (TIER_ORDER in match.js). Once per climb: dropping back and climbing
@@ -492,7 +493,7 @@ function checkTierUps(players) {
     const tier = TIER_ORDER[rank], climb = key + ':' + tier, prior = timesReached(p, tier);
     climbs.set(climb, (climbs.get(climb) || 0) + 1);
     window.api.showPopup?.({ kind:'streakTier', name:p.name, n:p.streak, tier, from:TIER_ORDER[before], before:prior,
-      mine:p.id === s.id, opacity:s.opacity, sound:s.sound });
+      mine:p.id === s.id, ...popupSound() });
   }
 }
 function renderNotice() {
@@ -783,14 +784,14 @@ function checkPersonalBest() {
   const record = board?.chests[0]?.chests || 0;
   if (record >= MIN_MATCH_CHESTS && s.cur.chests > record) {
     shown.record = shown.pb = game;
-    window.api.showPopup?.({ kind:'personalBest', record:true, n:s.cur.chests, best:record, opacity:s.opacity, sound:s.sound });
+    window.api.showPopup?.({ kind:'personalBest', record:true, n:s.cur.chests, best:record, ...popupSound() });
     return;
   }
   if (shown.pb === game) return;
   const best = Math.max(0, ...s.history.filter(countedMatch).map(m => Number(m.chests) || 0));
   if (best < MIN_MATCH_CHESTS || s.cur.chests <= best) return;
   shown.pb = game;
-  window.api.showPopup?.({ kind:'personalBest', n:s.cur.chests, best, opacity:s.opacity, sound:s.sound });
+  window.api.showPopup?.({ kind:'personalBest', n:s.cur.chests, best, ...popupSound() });
 }
 function endMatch() {
   if (s.cur.ended) return newGame();
@@ -982,7 +983,7 @@ window.api.onMatchStart?.(e => {
 });
 window.api.onConfigure?.(patch => {
   if (['personal', 'team', 'merged', 'both'].includes(patch.countMode)) s.countMode = patch.countMode;
-  for (const key of ['compact', 'recaps', 'streakPopups', 'bestPopups', 'sound']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
+  for (const key of ['compact', 'recaps', 'streakPopups', 'bestPopups', 'sound', 'legacySounds']) if (typeof patch[key] === 'boolean') s[key] = patch[key];
   if (typeof patch.name === 'string') s.name = patch.name.slice(0,20);
 
   if (Number.isFinite(patch.opacity)) s.opacity = Math.max(0, Math.min(100, patch.opacity));
@@ -1002,9 +1003,19 @@ window.api.onCommand?.(command => {
   }
 });
 
+// What every popup needs to sound right: the overlay opacity, the sound
+// switch and which sound set to play (Legacy Notification Sounds).
+const popupSound = () => ({ opacity:s.opacity, sound:s.sound, legacySounds:!!s.legacySounds });
+// Your own streak ending. Legacy mode plays the original falling tone here;
+// the redesigned sound plays in the popup in time with its scene, so here
+// only when no scene shows.
+function streakLostSound(tier, scene = s.streakPopups) {
+  if (s.legacySounds) window.playStreakLost?.();
+  else if (!scene) window.notificationSound?.({ type:'death', tier });
+}
 // Test menu (Num 0 in Settings): shows a popup with made-up numbers, counts nothing.
 function testPopup(kind) {
-  const me = s.name || 'You', base = { opacity:s.opacity, sound:s.sound };
+  const me = s.name || 'You', base = popupSound();
   const tier = TIER_ORDER.indexOf(kind);
   const expiryTier = kind.startsWith('expired:') && kind.slice(8);
   // Overtakes: a streak two into the chosen tier is passed by one more.
@@ -1013,11 +1024,11 @@ function testPopup(kind) {
   else if (passKind === 'overtake') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:'Rival', breaker:me, n, newN:n + 1, dropTo:droppedStreak(n), byMe:true });
   else if (TIER_ORDER.includes(expiryTier)) {
     window.api.showPopup?.({ ...base, kind:'streakLost', n:TIER_MIN[expiryTier], tier:expiryTier });
-    if (s.sound) window.playStreakLost?.();
+    if (s.sound) streakLostSound(expiryTier, true);
   } else if (tier >= 0) window.api.showPopup?.({ ...base, kind:'streakTier', name:me, n:TIER_MIN[kind], tier:kind, from:TIER_ORDER[tier - 1], mine:true });
   else if (kind === 'best') window.api.showPopup?.({ ...base, kind:'personalBest', n:42, best:41 });
   else if (kind === 'record') window.api.showPopup?.({ ...base, kind:'personalBest', record:true, n:80, best:79 });
-  else if (kind === 'lost') window.playStreakLost?.();
+  else if (kind === 'lost') streakLostSound('red', false);
   else if (kind === 'recap') $('lastGame').onclick();
 }
 
@@ -1031,8 +1042,8 @@ setInterval(() => {
   const players = rankedPlayers(), n = players.find(p => p.id === s.id)?.streak || 0;
   if (ownStreak && !n && !s.cur.ended && s.cur.chests >= ownChests) {
     ownLoss = net.players.find(p => p.id === s.id) || null;
-    if (s.sound) window.playStreakLost?.();
-    if (s.streakPopups) window.api.showPopup?.({ kind:'streakLost', n:ownStreak, tier:streakTier(ownStreak), opacity:s.opacity });
+    if (s.sound) streakLostSound(streakTier(ownStreak));
+    if (s.streakPopups) window.api.showPopup?.({ kind:'streakLost', n:ownStreak, tier:streakTier(ownStreak), ...popupSound() });
   }
   if (n) ownLoss = null;
   const changed = n !== ownStreak;

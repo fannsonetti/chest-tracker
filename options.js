@@ -53,7 +53,7 @@ function renderTopbar() {
 setInterval(renderTopbar, 1000);
 
 const configure = patch => window.api.configure(patch);
-for (const id of ['compact','opacity','recaps','streakPopups','bestPopups','sound','odds','name']) {
+for (const id of ['compact','opacity','recaps','streakPopups','bestPopups','sound','legacySounds','odds','name']) {
   const el = $(id);
   el.addEventListener(el.type === 'range' ? 'input':'change', () => {
     const value = el.type === 'checkbox' ? el.checked : ['range','number'].includes(el.type) ? Number(el.value) : el.value;
@@ -105,7 +105,7 @@ function render(data) {
   if (!data?.s) return;
   current = data;
   const { s, net, session, keys, keyOk } = data;
-  for (const id of ['compact','opacity','recaps','streakPopups','bestPopups','sound','odds','name']) {
+  for (const id of ['compact','opacity','recaps','streakPopups','bestPopups','sound','legacySounds','odds','name']) {
     const el = $(id);
     if (document.activeElement === el) continue;
     if (el.type === 'checkbox') el.checked = !!s[id]; else el.value = s[id] ?? '';
