@@ -173,3 +173,26 @@ test('a live streak schedules a roster update for the moment it runs out; leader
     host.terminate(); friend.terminate(); wss.close(); server.close();
   }
 });
+test('only the host can kick; the kicked player is closed with 4000 and leaves the roster', async () => {
+  const { server, wss } = createRelay({ signingKey:keys.privateKey });
+  server.listen(0, '127.0.0.1'); await once(server,'listening');
+  const url = `ws://127.0.0.1:${server.address().port}`;
+  const host = new WebSocket(url), friend = new WebSocket(url);
+  const hostMsg = messages(host), friendMsg = messages(friend);
+  const send = (c,m) => c.send(JSON.stringify(m));
+  try {
+    await Promise.all([once(host,'open'),once(friend,'open')]);
+    send(host,{ t:'create', v:2, p:{ id:'host',name:'Host' } });
+    const created = await hostMsg('roster');
+    send(friend,{ t:'join', v:2, code:created.code, p:{ id:'friend',name:'Friend' } });
+    await friendMsg('roster'); await hostMsg('roster');
+    send(friend,{ t:'kick', id:'host' });
+    assert.equal((await friendMsg('error')).error,'Only the host can kick players');
+    const closed = once(friend,'close');
+    send(host,{ t:'kick', id:'friend' });
+    assert.equal((await closed)[0],4000);
+    assert.deepEqual((await hostMsg('roster')).players.map(p => p.id),['host']);
+  } finally {
+    host.terminate(); friend.terminate(); wss.close(); server.close();
+  }
+});

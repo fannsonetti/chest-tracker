@@ -6,37 +6,46 @@
 //   streak; a longer gap starts you over at 1. MIN_STREAK or more is a streak.
 // - Your window is STREAK_MS (45s) and shrinks with every flame colour
 //   (TIER_MS), so long streaks take real pace.
-// - Passing the leader's live streak takes the lead; the passed leader keeps
-//   their streak and can win the lead back by passing again. When the
+// - Passing the leader's live streak takes the lead; the passed leader drops
+//   to the start of the tier below (droppedStreak) and can win the lead back
+//   by passing again. When the
 //   leader's streak runs out, the biggest live streak left takes over. Ties
 //   stay with the player who already leads.
 // - A window is set by each opening: becoming leader without opening keeps
 //   the deadline you already had.
 const MIN_STREAK = 3;
 const asStreak = n => n >= MIN_STREAK ? n : 0;
-const STREAK_MS = 45000, TIER_MS = { red:STREAK_MS, orange:30000, yellow:22000, blue:18000, purple:15000, celestial:12000, eclipse:10000, supernova:8000 };
+const STREAK_MS = 45000, TIER_MS = { red:STREAK_MS, orange:30000, yellow:22000, blue:18000, purple:15000, aurora:12000, quasar:10000, singularity:8000 };
 const streakWindow = n => TIER_MS[streakTier(n)];
 // Points: every opening scores POINTS_PER_CHEST, plus 10% per streak level
 // only while you lead, times the lobby size when it was opened (solo 1x up to
 // squads 4x). Solo games have no streak bonus.
+//
+// Holding the lead (party games only) also scores LEAD_POINTS_PER_SEC for
+// every second you have the biggest live streak, times the other players in
+// the lobby (none when solo).
 //
 // Awards (party games only): the game's first and last chest each score
 // AWARD_POINTS times the lobby size. "Last" moves to whoever opens next.
 const POINTS_PER_CHEST = 0.25;
 // Results signed before 1.2.2 (v1) scored 10 per chest; they count at 1/40.
 const LEGACY_POINT_SCALE = 1 / 40, POINTS_VERSION = 2;
-// Streak colours by length: red, orange, yellow, blue, purple, then three
-// rare ones: Celestial (a white flame with a moving pastel rainbow outline),
-// Eclipse (a black flame with the same rainbow) and Supernova at 100 (a
-// flame filled with the moving rainbow). TIER_ORDER runs lowest to highest.
-const STREAK_TIERS = [[100, 'supernova'], [75, 'eclipse'], [50, 'celestial'], [40, 'purple'], [30, 'blue'], [20, 'yellow'], [10, 'orange']];
+// Streak tiers by length: Ember (red), Flare (orange), Solar (yellow), Plasma
+// (blue) and Nebula (purple), then three rare ones: Aurora at 50 (flowing
+// cyan-green light), Quasar at 75 (white-blue radiance round a spinning disk)
+// and Singularity at 100 (a black flame traced by a white corona).
+// TIER_ORDER runs lowest to highest. Their reveals live in milestones.js.
+const STREAK_TIERS = [[100, 'singularity'], [75, 'quasar'], [50, 'aurora'], [40, 'purple'], [30, 'blue'], [20, 'yellow'], [10, 'orange']];
 const TIER_ORDER = ['red', ...STREAK_TIERS.map(t => t[1]).reverse()];
 const TIER_MIN = Object.fromEntries([[MIN_STREAK, 'red'], ...STREAK_TIERS].map(([n, t]) => [t, n]));
-const TIER_LABEL = { red:'Red', orange:'Orange', yellow:'Yellow', blue:'Blue', purple:'Purple', celestial:'Celestial', eclipse:'Eclipse', supernova:'Supernova' };
-// Celestial and Eclipse wear the rainbow outline; Supernova has its own corona (tiers.css).
-const RING_TIERS = ['celestial', 'eclipse'];
+const TIER_LABEL = { red:'Ember', orange:'Flare', yellow:'Solar', blue:'Plasma', purple:'Nebula', aurora:'Aurora', quasar:'Quasar', singularity:'Singularity' };
 const streakTier = n => (STREAK_TIERS.find(([min]) => n >= min) || [0, 'red'])[1];
-const MAX_MULTIPLIER = 4, AWARD_POINTS = 1;
+// A streak's place in TIER_ORDER; -1 below MIN_STREAK, so reaching 3 is a step up to Ember.
+const tierRank = n => n >= MIN_STREAK ? TIER_ORDER.indexOf(streakTier(n)) : -1;
+// Overtaken: your streak falls to the start of the tier below yours (Solar 20+
+// to 10, Quasar 75+ to 50). Ember has nothing below, so it ends.
+const droppedStreak = n => { const r = tierRank(n); return r > 0 ? TIER_MIN[TIER_ORDER[r - 1]] : 0; };
+const MAX_MULTIPLIER = 4, AWARD_POINTS = 1, LEAD_POINTS_PER_SEC = 0.01;
 const multiplier = size => Math.max(1, Math.min(MAX_MULTIPLIER, Math.floor(size) || 1));
 // `streak` is the opener's streak if they lead after this opening, else 0.
 const openingPoints = (streak, size) =>
@@ -81,9 +90,23 @@ function leaderAt(runs, leader, at) {
   }
   return top;
 }
+// Credit whoever leads from `from` to `to` with lead points, following the
+// lead as streaks run out. Returns the leader at `to`.
+function creditLead(runs, leader, from, to, size, score) {
+  for (let t = from; t < to;) {
+    leader = leaderAt(runs, leader, t);
+    if (!leader) break;
+    const end = Math.min(to, runs.get(leader).deadline);
+    score(leader, (end - t) / 1000 * LEAD_POINTS_PER_SEC * (multiplier(size) - 1));
+    t = end + 1;
+  }
+  return leader;
+}
 class OpeningStreaks {
   constructor() { this.reset(); }
-  reset() { this.counts = new Map(); this.events = []; this.competitive = true; this.size = 1; this.segment = 0; this.replay(); }
+  reset() { this.counts = new Map(); this.events = []; this.competitive = true; this.size = 1; this.segment = 0; this.stopAt = Infinity; this.replay(); }
+  // A finished match stops scoring lead time at `at`.
+  stop(at = Date.now()) { this.stopAt = at; }
   // Lobby size sets the points multiplier; more than one player is competitive.
   setPlayers(n) { this.size = Math.max(1, Math.floor(n) || 1); this.setCompetitive(this.size > 1); }
   setCompetitive(enabled) {
@@ -113,11 +136,13 @@ class OpeningStreaks {
   // corrections stay exact. A lobby-size change between solo and party
   // starts everyone's streaks over.
   replay() {
-    let segment = null, runs = new Map(), leader = null, first = null, last = null;
+    let segment = null, runs = new Map(), leader = null, first = null, last = null, prev = null;
     const best = new Map(), points = new Map();
     const score = (id, value) => points.set(id, (points.get(id) || 0) + value);
     for (const e of this.events) {
       if (e.segment !== segment) { segment = e.segment; runs = new Map(); leader = null; }
+      else if (prev?.competitive) leader = creditLead(runs, leader, prev.at, e.at, prev.size || 2, score);
+      prev = e;
       if (e.competitive) {
         if (!first) first = { id:e.id, at:e.at, size:e.size || 2 };
         last = { id:e.id, at:e.at, size:e.size || 2 };
@@ -126,7 +151,11 @@ class OpeningStreaks {
         leader = leaderAt(runs, leader, e.at);
         const run = runs.get(e.id);
         const n = run && run.deadline >= e.at ? run.n + 1 : 1;
-        if (n >= MIN_STREAK && e.id !== leader && (!leader || n > runs.get(leader).n)) leader = e.id;
+        if (n >= MIN_STREAK && e.id !== leader && (!leader || n > runs.get(leader).n)) {
+          // The passed leader drops a tier and starts that tier's full window.
+          if (leader) { const n = droppedStreak(runs.get(leader).n), window = streakWindow(n); runs.set(leader, { n, deadline:e.at + window, window }); }
+          leader = e.id;
+        }
         const leading = e.id === leader, window = streakWindow(n, leading);
         runs.set(e.id, { n, deadline:e.at + window, window });
         if (n >= MIN_STREAK) best.set(e.id, Math.max(best.get(e.id) || 0, n));
@@ -138,6 +167,7 @@ class OpeningStreaks {
     const live = segment === this.segment;
     this.runs = live ? runs : new Map(); this.lastLeader = live ? leader : null;
     this.best = best; this.points = points; this.first = first; this.last = last;
+    this.tail = live && prev?.competitive ? { at:prev.at, size:prev.size || 2 } : null;
   }
   timeline() { return this.events.map(({id,n,at}) => ({ id,n,at })); }
   leader(now = Date.now()) { return leaderAt(this.runs, this.lastLeader, now); }
@@ -154,13 +184,18 @@ class OpeningStreaks {
     return next;
   }
   longest(id) { return asStreak(this.best.get(id) || 0); }
-  score(id) { return Math.round((this.points.get(id) || 0) * 10000) / 10000; }
+  // Points so far, including lead time since the last opening up to `now`.
+  score(id, now = Date.now()) {
+    let total = this.points.get(id) || 0;
+    if (this.tail) creditLead(this.runs, this.lastLeader, this.tail.at, Math.min(now, this.stopAt), this.tail.size, (who, v) => { if (who === id) total += v; });
+    return Math.round(total * 10000) / 10000;
+  }
   awards(id) { return { first:this.first?.id === id, last:this.last?.id === id }; }
   live(players, now = Date.now()) {
     const lead = this.leader(now);
     return players.map(p => { const st = this.streakOf(p.id, now);
       return { ...p, streak:st.n, streakLeft:Math.round(st.left), streakWindow:st.window, lead:!!lead && p.id === lead,
-        bestStreak:this.longest(p.id), points:this.score(p.id) }; });
+        bestStreak:this.longest(p.id), points:this.score(p.id, now) }; });
   }
   recap(players) {
     const party = players.length > 1;
@@ -374,27 +409,18 @@ function recapDetails(match) {
 // ---------- Overlay recap ----------
 // One category per stage, cycled by popup.js. A stage may carry `play` (the
 // replay frames popup.js animates) and `ms` (its own length).
-const FIRE_PATHS = '<path d="M8.5 1.5c.8 3-2.8 4.1-2.1 6.4C5 7.4 4.3 6.5 4.2 5.4 2.8 7 2 8.5 2 10a6 6 0 0 0 12 0c0-3-2.4-5.3-5.5-8.5Z"/><path d="M8 9c1.5 1.1 2 2 2 3a2 2 0 0 1-4 0c0-.8.6-1.9 2-3Z"/>';
-// The ring copy only shows for the rainbow tiers (tiers.css).
-const RECAP_FIRE = '<svg class="fire" viewBox="0 0 16 16" aria-hidden="true"><g class="ring">' + FIRE_PATHS + '</g><g class="core">' + FIRE_PATHS + '</g></svg>';
+// The third path is Plasma's electric filaments and the ellipse the orbit that
+// Quasar and Singularity spin; the other tiers hide them (tiers.css).
+const FIRE_PATHS = '<path d="M8.5 1.5c.8 3-2.8 4.1-2.1 6.4C5 7.4 4.3 6.5 4.2 5.4 2.8 7 2 8.5 2 10a6 6 0 0 0 12 0c0-3-2.4-5.3-5.5-8.5Z"/><path d="M8 9c1.5 1.1 2 2 2 3a2 2 0 0 1-4 0c0-.8.6-1.9 2-3Z"/>' +
+  '<path class="arc" d="M8.7 3.3 7.6 5.7l1 1.4-.6 1.7M7.6 5.7 6.2 6.5M3.3 9.4l1.9 1.1.8 1.5M12.7 9l-1.6 1.3-.4 1.6"/>';
+// The ring copy is a wide glow under the flame, shown only for the rare tiers (tiers.css).
+const RECAP_FIRE = '<svg class="fire" viewBox="0 0 16 16" aria-hidden="true"><g class="ring">' + FIRE_PATHS + '</g><g class="core">' + FIRE_PATHS + '</g><ellipse class="orbit" cx="8" cy="10.5" rx="7.8" ry="2.1" pathLength="20"/></svg>';
 const RECAP_CROWN = '<svg class="crown" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5l3 2 3-4 3 4 3-2-1.5 7h-9zM4 14h8"/></svg>';
 const RECAP_FLAG = '<svg class="flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.5V2M3.5 2.5h8l-1.8 3 1.8 3h-8"/></svg>';
 const RECAP_FINISH = '<svg class="finish" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.5V2"/><path d="M3.5 2.5h9v6h-9"/><path d="M6.5 2.5v6M9.5 2.5v6M3.5 5.5h9"/></svg>';
 const RECAP_STAR = '<svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>';
-// The moving pastel rainbow the rare tiers outline with. A repeating
-// gradient twice a flame's width shifts by one period per cycle, so about
-// three colours show at once and the band keeps travelling.
-function addRainbowWave(doc) {
-  if (!doc || doc.getElementById('rainbow-wave')) return;
-  const stops = ['#ffb3c4','#ffd3ad','#fff0a6','#b8efc6','#aed8ff','#d3bdff','#ffb3c4']
-    .map((c, i, a) => '<stop offset="' + (i / (a.length - 1)).toFixed(3) + '" stop-color="' + c + '"/>').join('');
-  const holder = doc.createElement('div');
-  holder.innerHTML = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="rainbow-wave" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="32" y2="0" spreadMethod="repeat">' + stops +
-    '<animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="32 0" dur="2.4s" repeatCount="indefinite"/></linearGradient></defs></svg>';
-  doc.body.appendChild(holder.firstChild);
-}
-// A number that wears the tier's colours; rainbow tiers need their text twice.
-const tierNumber = (n, tier) => '<span class="wave-text" data-text="' + n + '">' + n + '</span>';
+// A number that wears the tier's colours (tiers.css styles .wave-text per tier).
+const tierNumber = n => '<span class="wave-text" data-text="' + n + '">' + n + '</span>';
 
 // Who earned what in a finished match: first and last chest (party only),
 // from the saved timeline or the relay's flags.
@@ -539,4 +565,4 @@ function recapStages(match, selfId) {
   }
   return stages;
 }
-if (typeof module !== 'undefined') module.exports = { MIN_STREAK, POINTS_PER_CHEST, STREAK_MS, streakWindow, TIER_ORDER, TIER_MIN, TIER_LABEL, RING_TIERS, matchMinutes, AWARD_POINTS, openingPoints, LEGACY_POINT_SCALE, POINTS_VERSION, streakTier, MIN_MATCH_MS, MIN_MATCH_CHESTS, countedMatch, matchTeamChests, matchAverages, gameLabel, asStreak, HoldFilter, OpeningStreaks, recapPlayers, recapDetails, recapStages, matchLeaderboards, careerStats, mergeSignedMatches, renumberMatches, proofChunks, signedId, matchHighlights, replayFrames, RECAP_FIRE, addRainbowWave, tierNumber };
+if (typeof module !== 'undefined') module.exports = { MIN_STREAK, droppedStreak, POINTS_PER_CHEST, LEAD_POINTS_PER_SEC, STREAK_MS, streakWindow, TIER_ORDER, TIER_MIN, TIER_LABEL, matchMinutes, AWARD_POINTS, openingPoints, LEGACY_POINT_SCALE, POINTS_VERSION, streakTier, tierRank, MIN_MATCH_MS, MIN_MATCH_CHESTS, countedMatch, matchTeamChests, matchAverages, gameLabel, asStreak, HoldFilter, OpeningStreaks, recapPlayers, recapDetails, recapStages, matchLeaderboards, careerStats, mergeSignedMatches, renumberMatches, proofChunks, signedId, matchHighlights, replayFrames, RECAP_FIRE, tierNumber };

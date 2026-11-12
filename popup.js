@@ -3,12 +3,14 @@
 // only the feat: who has the streak now, or the new best.
 const STAGE_MS = 5500, PILL_MS = 4200, STALE_MS = 15000, PILL_PAD = 28;
 const $ = id => document.getElementById(id);
+// Outside Electron (milestones-preview.html embeds this page) there is no
+// preload: take popups from the embedding page's messages instead.
+window.api ||= { onPopup: cb => addEventListener('message', e => cb(e.data)), getPopups: async () => [], popupResize() {}, closePopup() {}, recapDone() {} };
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const panel = $('panel');
 let queue = [], current = null, stages = [], index = 0;
 let timer = 0, startedAt = 0, remaining = 0, hovering = false, playing = null;
-addRainbowWave(document);
 
 // Report the panel's natural size (not its animated transform) and kind,
 // so the main process can place it: pills top middle, recaps centered.
@@ -20,7 +22,7 @@ function fit() {
   // padding); the rare colours' scenes get much more.
   const pad = document.body.classList.contains('pill-body') ? stages[0]?.pad || PILL_PAD : 0;
   document.body.style.setProperty('--pad', pad + 'px');
-  window.api.popupResize({ w:panel.offsetWidth + pad * 2, h:panel.offsetHeight + pad * 2, pad, kind:current?.kind || 'recap' });
+  window.api.popupResize({ w:panel.offsetWidth + pad * 2, h:panel.offsetHeight + pad * 2, pad:stages[0]?.reveal ? (stages[0].reveal.compact ? 0 : REVEAL_PAD) : pad, kind:current?.kind || 'recap' });
 }
 function applyOpacity(opacity) {
   const a = Math.max(0, Math.min(100, Number.isFinite(opacity) ? opacity : 88)) / 100;
@@ -44,66 +46,60 @@ function sparks(hype, reach = 16 + hype * 4) {
   return html;
 }
 
+// A flame wrapped in its tier's class, so tiers.css paints it (rare tiers
+// have their own body, ring and cracks). Tier changes stack two: the old
+// one ('was') hands over to the new one ('now') in popup.html.
+const flame = (tier, cls = '') => '<span class="fl ' + cls + ' tier-' + tier + '">' + RECAP_FIRE + '</span>';
+const chip = (n, tier, cls = '') => '<span class="chip ' + cls + (tier ? ' tier-' + tier : '') + '">' + tierNumber(n) + '</span>';
+
 // Streak taken: the holder's name and run are struck through while the flame
 // cools, then the reel rolls up to the new holder and it relights.
 function brokenStage(item) {
   const owner = item.mine ? 'You' : esc(item.owner), taker = item.byMe ? 'You' : esc(item.breaker);
   const from = streakTier(item.n || 0), to = streakTier(item.newN || 0);
-  const count = n => n > 0 ? '<span class="count">' + tierNumber(n) + '</span>' : '';
-  const rings = (RING_TIERS.includes(from) ? ' ring-from' : '') + (RING_TIERS.includes(to) ? ' ring-to' : '');
-  return { key:'broken', label:'', html:'<div class="taken' + rings + '" style="' + tierVars('from', from) + ';' + tierVars('to', to) + '" aria-label="' + taker + ' took the lead from ' + owner + '">' +
-    '<span class="flame' + (to === 'supernova' ? ' tier-supernova' : '') + '">' + RECAP_FIRE + '</span><span class="slot"><span class="reel">' +
+  const count = n => n > 0 ? '<span class="count">' + chip(n) + '</span>' : '';
+  return { key:'broken', label:'', html:'<div class="taken" style="' + tierVars('from', from) + ';' + tierVars('to', to) + '" aria-label="' + taker + ' took the lead from ' + owner + '">' +
+    '<span class="flame">' + flame(from, 'was') + flame(to, 'now') + '</span><span class="slot"><span class="reel">' +
     '<span class="line old tier-' + from + '"><span class="struck"><span class="name">' + owner + '</span>' + count(item.n) + '</span></span>' +
     '<span class="line new tier-' + to + (item.byMe ? ' me' : '') + '"><span class="name">' + taker + '</span>' + count(item.newN) + '</span>' +
-    '</span></span></div>' };
+    '</span></span>' + dropBadge(item) + '</div>' };
+}
+// ponytail: placeholder drop animation for the passed holder's fall to the
+// tier below; replace with a proper one later.
+function dropBadge(item) {
+  if (!Number.isFinite(item.dropTo) || item.dropTo >= (item.n || 0)) return '';
+  return '<span class="drop tier-' + streakTier(item.dropTo) + '">' + (item.mine ? 'You' : esc(item.owner)) + ' ↓ ' + (item.dropTo ? tierNumber(item.dropTo) : '0') + '</span>';
 }
 
 // Your streak ran out: a round pill whose flame gutters, shrinks to a glowing
 // ember at its base, and the ember fades out.
 function lostStage(item) {
   const tier = TIER_ORDER.includes(item.tier) ? item.tier : 'red';
-  return { key:'lost', label:'', ms:2900, html:'<div class="lost' + (RING_TIERS.includes(item.tier) ? ' ring-from' : '') + '" style="' + tierVars('from', tier) + '" aria-label="Your streak of ' + item.n + ' ran out">' +
-    '<span class="flame' + (tier === 'supernova' ? ' tier-supernova' : '') + '">' + RECAP_FIRE + '<i class="ember"></i></span></div>' };
+  return { key:'lost', label:'', ms:2900, html:'<div class="lost" style="' + tierVars('from', tier) + '" aria-label="Your streak of ' + item.n + ' ran out">' +
+    '<span class="flame">' + flame(tier) + '<i class="ember"></i></span></div>' };
 }
 
-// Extra scene pieces for the rare colours (popup.html): Celestial's rays,
-// halo and stars; Eclipse's dusk, corona, moon and glint; Supernova's inflow,
-// collapse point, white-out and shockwaves. --at is when each scene's climax
-// lands; pad is how far it may spill past the pill.
-const RARE = {
-  celestial: { at:0, pad:72, reach:60, fx:() => '<i class="fx rays"></i><i class="fx halo"></i>' + scatter(10, 'star', 34, 78) },
-  eclipse: { at:.9, pad:96, reach:72, fx:() => '<i class="fx dusk"></i><i class="fx corona"></i><i class="fx moon"></i><i class="fx glint"></i>' },
-  supernova: { at:1.15, pad:120, reach:110, fx:() => scatter(22, 'inflow', 40, 95, true) + '<i class="fx point"></i><i class="fx whiteout"></i><i class="fx shock"></i><i class="fx shock s2"></i><i class="fx shock s3"></i>' },
-};
-// Particles spread around the flame: stars at x/y offsets, or inflow motes at an angle and distance.
-function scatter(count, cls, near, far, polar = false) {
-  let html = '';
-  for (let i = 0; i < count; i++) {
-    const a = 360 * i / count + Math.random() * 20, d = near + Math.random() * (far - near), t = Math.round(Math.random() * (polar ? 400 : 900));
-    const pos = polar ? '--a:' + Math.round(a) + 'deg;--d:' + Math.round(d) + 'px'
-      : '--x:' + Math.round(Math.cos(a * Math.PI / 180) * d * 1.6) + 'px;--y:' + Math.round(Math.sin(a * Math.PI / 180) * d * .55) + 'px';
-    html += '<i class="fx ' + cls + '" style="' + pos + ';--t:' + t + 'ms"></i>';
-  }
-  return html;
-}
-
-// New flame colour: the flame ignites from its old colour into the new one,
-// harder the higher the colour; the rare colours play their own scene.
+// New flame colour: a free-floating milestone reveal (milestones.js), no
+// pill. The window fits the reveal's square stage; REVEAL_PAD lifts it so the
+// flame sits where the pills did, leaving the top of the stage for the
+// effects that rise above it.
+const REVEAL_PAD = 110;
 function tierStage(item) {
-  const who = item.mine ? 'You' : esc(item.name), tier = TIER_ORDER.includes(item.tier) ? item.tier : 'blue';
-  const hype = Math.max(1, TIER_ORDER.indexOf(tier)), from = TIER_ORDER.includes(item.from) ? item.from : 'red';
-  const rare = RARE[tier];
-  return { key:'tier', label:'', hype, glow:tier, tier, at:rare?.at || 0, pad:rare?.pad, ms:PILL_MS + hype * 450 + (rare ? 1500 : 0), html:'<div class="tierup' + hypeClass(hype) + (rare ? ' t-' + tier : '') + (RING_TIERS.includes(tier) ? ' ring-to' : '') + '" style="' + tierVars('from', from) + ';' + tierVars('to', tier) + ';--hype:' + hype + ';--at:' + (rare?.at || 0) + 's" aria-label="' + who + ' reached a ' + item.n + ' streak">' +
-    '<span class="flame' + (tier === 'supernova' ? ' tier-supernova' : '') + '">' + RECAP_FIRE + (rare ? rare.fx() : '') + sparks(hype, rare?.reach) + '</span><span class="text"><small class="kicker">' + TIER_LABEL[tier] + (TIER_MIN[tier] >= 50 ? '' : ' flame') + '</small>' +
-    '<span class="line tier-' + tier + '"><span class="name">' + who + '</span><span class="count">' + tierNumber(item.n) + '</span></span></span></div>' };
+  // Your own milestone plays the full reveal; a teammate's is the small settled flame.
+  const who = String(item.name || 'Someone'), tier = TIER_ORDER.includes(item.tier) ? item.tier : 'red', compact = !item.mine;
+  return { key:'tier', label:'', reveal:{ tier, who, achieved:(item.before || 0) + 1, compact }, hype:Math.max(1, TIER_ORDER.indexOf(tier)),
+    at:compact ? 0 : SCENES[tier].at, ms:compact ? MS_COMPACT : SCENES[tier].ms + MS_HOLD,
+    html:'<div class="reveal" aria-label="' + esc(who) + ' reached ' + TIER_LABEL[tier] + ', a ' + TIER_MIN[tier] + ' streak"></div>' };
 }
+let revealRun = null;
+const stopReveal = () => { revealRun?.stop(); revealRun = null; };
 
 // Personal best: a gold trophy and the new count. A leaderboard record is the
 // same trophy at full hype.
 const TROPHY = '<svg class="trophy" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2h6v4a3 3 0 0 1-6 0z"/><path d="M5 3H3a2 2 0 0 0 2.2 2.6M11 3h2a2 2 0 0 1-2.2 2.6"/><path d="M8 9v3M5.5 14h5"/></svg>';
 function bestStage(item) {
   const hype = item.record ? 7 : 2, what = item.record ? 'New leaderboard record' : 'New personal best';
-  return { key:'best', label:'', hype, glow:'gold', ms:PILL_MS + hype * 450, html:'<div class="best' + hypeClass(hype) + (item.record ? ' record' : '') + '" style="' + tierVars('from', 'gold') + ';' + tierVars('to', 'gold') + ';--hype:' + hype + '" aria-label="' + what + ': ' + item.n + ' chests">' +
+  return { key:'best', label:'', hype, glow:'gold', at:.5, ms:PILL_MS + hype * 450, html:'<div class="best' + hypeClass(hype) + (item.record ? ' record' : '') + '" style="' + tierVars('from', 'gold') + ';' + tierVars('to', 'gold') + ';--hype:' + hype + '" aria-label="' + what + ': ' + item.n + ' chests">' +
     '<span class="flame">' + TROPHY + sparks(hype) + '</span><span class="text"><small class="kicker">' + (item.record ? 'Leaderboard record' : 'Personal best') + '</small>' +
     '<span class="line">' + item.n + ' chests</span></span></div>' };
 }
@@ -195,7 +191,7 @@ const easeInOut = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
 function stopReplay() { if (playing) cancelAnimationFrame(playing.raf); playing = null; }
 
 function show(item) {
-  clearTimeout(timer); stopReplay();
+  clearTimeout(timer); stopReplay(); stopReveal();
   current = item; index = 0;
   applyOpacity(item.opacity);
   if (item.kind === 'recap') {
@@ -206,7 +202,7 @@ function show(item) {
     $('sub').textContent = clock(Math.max(0, (m.end || 0) - (m.start || 0))) + ' · ' + (players > 1 ? 'squad of ' + players : 'solo');
   } else if (item.kind === 'streakTier') {
     stages = [tierStage(item)];
-    if (item.mine && item.sound !== false) hypeSound(stages[0].hype);
+    if (item.mine && item.sound !== false) setTimeout(hypeSound, (stages[0].at - .1) * 1000, stages[0].hype);
   } else if (item.kind === 'personalBest') {
     stages = [bestStage(item)];
     if (item.sound !== false) hypeSound(stages[0].hype);
@@ -215,8 +211,10 @@ function show(item) {
   } else {
     stages = [brokenStage(item)];
   }
-  const pill = item.kind !== 'recap', hype = pill ? stages[0].hype || 0 : 0;
+  const reveal = !!stages[0].reveal, pill = item.kind !== 'recap' && !reveal, hype = pill ? stages[0].hype || 0 : 0;
   document.body.classList.toggle('pill-body', pill);
+  panel.classList.toggle('reveal-kind', reveal);
+  panel.classList.toggle('compact', reveal && !!stages[0].reveal.compact);
   panel.classList.toggle('pill-kind', pill);
   panel.classList.toggle('round-kind', item.kind === 'streakLost');
   panel.classList.toggle('best-kind', item.kind === 'personalBest');
@@ -226,13 +224,19 @@ function show(item) {
   panel.classList.toggle('hype-huge', hype >= 5);
   if (stages[0].tier) panel.dataset.tier = stages[0].tier; else delete panel.dataset.tier;
   panel.style.setProperty('--at', (stages[0].at || 0) + 's');
-  if (hype) { panel.dataset.hype = hype; panel.style.setProperty('--hype', hype); panel.style.setProperty('--glow', 'var(--g-' + stages[0].glow + ')'); panel.style.setProperty('--edge', 'var(--c-' + stages[0].glow + ')'); }
-  else delete panel.dataset.hype;
+  if (hype) {
+    // A tier change glows in the old colour first; ::after brings in the new one at --at.
+    const was = stages[0].from || stages[0].glow;
+    panel.dataset.hype = hype; panel.style.setProperty('--hype', hype);
+    panel.style.setProperty('--glow', 'var(--g-' + was + ')'); panel.style.setProperty('--edge', 'var(--c-' + was + ')');
+    panel.style.setProperty('--glow2', 'var(--g-' + stages[0].glow + ')'); panel.style.setProperty('--edge2', 'var(--c-' + stages[0].glow + ')');
+  } else delete panel.dataset.hype;
   panel.classList.remove('out', 'in'); void panel.offsetWidth; // restart the entry animation
   $('stages').innerHTML = stages.map(s => '<section class="stage" data-key="' + s.key + '">' + s.html + '</section>').join('');
   $('steps').innerHTML = stages.map((s, i) => '<button aria-label="Show ' + esc(s.label || 'popup') + '" data-i="' + i + '"><i></i></button>').join('');
   for (const b of $('steps').children) b.onclick = e => { e.stopPropagation(); go(Number(b.dataset.i)); };
   panel.classList.add('in');
+  if (reveal) revealRun = playMilestone($('stages').querySelector('.reveal'), stages[0].reveal.tier, stages[0].reveal);
   go(0);
   fit();
 }
@@ -277,7 +281,7 @@ function finish() {
     if (current) return;
     while (queue.length && Date.now() - queue[0].at > STALE_MS) queue.shift();
     if (queue.length) show(queue.shift());
-    else window.api.closePopup();
+    else { stopReveal(); window.api.closePopup(); }
   }, 280);
 }
 
@@ -288,8 +292,9 @@ function receive(item) {
     queue = queue.filter(q => q.kind === 'recap');
     show(item);
   } else if (!current) show(item);
-  // Pills wait their turn behind each other; a newer streak takeover replaces an older queued one.
-  else queue = queue.filter(q => !(item.kind === 'streakBroken' && q.kind === 'streakBroken')).concat(item);
+  // Pills wait their turn behind each other; a newer streak takeover replaces an older queued one,
+  // and a newer colour for the same player replaces their queued one, so only the highest plays.
+  else queue = queue.filter(q => !(item.kind === q.kind && (item.kind === 'streakBroken' || (item.kind === 'streakTier' && q.name === item.name && q.mine === item.mine)))).concat(item);
 }
 
 panel.addEventListener('mouseenter', () => {

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Milestone Preview</title>
+<!-- Developer preview of the eight flame milestone reveals and the small looping
+     icons. Open this file in a browser (or Electron); nothing here touches real
+     streaks or stats. Not packaged with the app. -->
+<link rel="stylesheet" href="tiers.css">
+<style>
+  :root { color-scheme: dark; --fg: #eceef2; --muted: #8f96a3; --line: rgba(255, 255, 255, .08); }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; color: var(--fg); background: #0b0c10; font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  body.bright .scene { background: linear-gradient(160deg, #9ab7d6, #e9d7a9 55%, #6f8d5a); }
+  body.busy .scene { background: repeating-linear-gradient(35deg, #1b2230 0 14px, #2c3445 14px 28px), #1b2230; }
+  header { padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  button, select { font: inherit; color: var(--fg); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button:hover { background: rgba(255, 255, 255, .12); }
+  button[aria-pressed=true] { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .3); }
+  label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+  .scene { position: relative; min-height: 420px; display: grid; place-items: start center; overflow: hidden;
+    background: radial-gradient(ellipse at 30% 20%, #1a2233, transparent 60%), radial-gradient(ellipse at 80% 90%, #22182e, transparent 55%), #0e1016; }
+  /* A stand-in MiniHUD so the reveal is judged over the real kind of surface. */
+  .mock { position: absolute; left: 16px; bottom: 16px; width: 200px; padding: 8px 10px; border-radius: 10px; background: rgba(12, 13, 16, .88); border: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+  .mock b { color: var(--fg); font-weight: 600; }
+  #stage { width: 360px; max-width: 100%; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; border-top: 1px solid var(--line); }
+  .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1px; background: var(--line); border-top: 1px solid var(--line); }
+  .icons div { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #0e1016; color: var(--muted); }
+  .icons .streak { display: inline-flex; align-items: center; gap: 4px; color: var(--tier); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .icons svg { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
+  .icons .streak svg { width: 13px; height: 15px; }
+  .icons .big { color: var(--tier); }
+  .icons .big svg { width: 34px; height: 40px; stroke-width: 1.1; filter: drop-shadow(0 0 4px var(--tier-glow)); }
+  .icons .big svg .core path:first-child { fill: color-mix(in srgb, currentColor 16%, transparent); }
+  #timing { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+</style></head>
+<body>
+<header>
+  <h1>Milestone preview</h1>
+  <span id="tiers"></span>
+  <button id="replay">Replay</button>
+  <button id="all">Play all</button>
+  <label><input type="checkbox" id="loop"> Loop</label>
+  <label><input type="checkbox" id="reduce"> Reduced motion</label>
+  <label>Backdrop <select id="backdrop"><option value="">Dark</option><option value="busy">Busy</option><option value="bright">Bright</option></select></label>
+  <span id="timing"></span>
+</header>
+<div class="scene"><div id="stage"></div><div class="mock"><b>Match 4</b> · 12:41<br>SQUAD &nbsp; GAME &nbsp; STREAK</div></div>
+<div class="row" id="drops"><b style="align-self:center;margin-right:8px">Overtaken drops</b>
+  <label><input type="radio" name="side" value="mine" checked> You're passed</label>
+  <label><input type="radio" name="side" value="other"> Someone else is passed</label>
+  <label><input type="radio" name="side" value="byMe"> You pass them</label>
+  <button id="allDrops">Play all</button>
+</div>
+<div class="scene" style="min-height:200px"><iframe id="popup" src="popup.html" style="width:560px;max-width:100%;height:200px;border:0;background:transparent;color-scheme:light" allowtransparency="true"></iframe></div>
+<div class="icons" id="icons"></div>
+<script src="match.js"></script>
+<script src="milestones.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  let tier = 'red', run = null, timer = 0, queue = [];
+  function play(t) {
+    tier = t; clearTimeout(timer); run?.stop();
+    for (const b of $('tiers').children) b.setAttribute('aria-pressed', b.dataset.tier === t);
+    run = playMilestone($('stage'), t, { who:'You', reduced:$('reduce').checked });
+    $('timing').textContent = TIER_LABEL[t] + ': reveal ' + SCENES[t].ms + 'ms, total ' + run.ms + 'ms';
+    timer = setTimeout(() => {
+      if (queue.length) play(queue.shift());
+      else if ($('loop').checked) play(tier);
+    }, run.ms + 250);
+  }
+  $('tiers').innerHTML = TIER_ORDER.map(t => '<button data-tier="' + t + '">' + TIER_LABEL[t] + ' · ' + TIER_MIN[t] + '</button>').join(' ');
+  for (const b of $('tiers').children) b.onclick = () => { queue = []; play(b.dataset.tier); };
+  $('replay').onclick = () => { queue = []; play(tier); };
+  $('all').onclick = () => { queue = TIER_ORDER.slice(1); play(TIER_ORDER[0]); };
+  $('backdrop').onchange = e => { document.body.className = e.target.value; };
+  // The small looping icons at HUD size and larger, as the app shows them.
+  $('icons').innerHTML = TIER_ORDER.map(t => '<div><span class="streak flicker tier-' + t + '">' + RECAP_FIRE + tierNumber(TIER_MIN[t]) + '</span>' +
+    '<span class="big tier-' + t + '">' + RECAP_FIRE + '</span>' + TIER_LABEL[t] + '</div>').join('');
+  play('red');
+  // Overtaken drops: the real takeover popup (popup.html) for a leader passed
+  // at each tier, falling to the start of the tier below (droppedStreak).
+  const side = () => document.querySelector('[name=side]:checked').value;
+  function drop(t) {
+    const n = TIER_MIN[t] + 2, s = side();
+    $('popup').contentWindow.postMessage({ kind:'streakBroken', owner:s === 'mine' ? 'You' : 'Rival', breaker:s === 'byMe' ? 'You' : 'Raider',
+      n, newN:n + 1, dropTo:droppedStreak(n), mine:s === 'mine', byMe:s === 'byMe', sound:false }, '*');
+  }
+  $('allDrops').insertAdjacentHTML('beforebegin', TIER_ORDER.map(t => '<button data-drop="' + t + '">' + TIER_LABEL[t] + ' ' + (TIER_MIN[t] + 2) + ' → ' + (droppedStreak(TIER_MIN[t] + 2) || 'out') + '</button>').join(' '));
+  for (const b of document.querySelectorAll('[data-drop]')) b.onclick = () => drop(b.dataset.drop);
+  // One at a time: the popup's queue keeps only the newest waiting takeover. 4200ms pill + 280ms exit.
+  $('allDrops').onclick = () => TIER_ORDER.forEach((t, i) => setTimeout(drop, i * 4600, t));
+</script>
+</body></html>

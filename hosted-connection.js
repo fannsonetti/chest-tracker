@@ -53,7 +53,7 @@ class HostedConnection {
       socket.terminate();
     };
     socket.on('error', () => disconnected('Could not connect to the default hosted server.'));
-    socket.on('close', () => disconnected('Connection closed. Refresh the lobby browser to reconnect.'));
+    socket.on('close', code => disconnected(code === 4000 ? 'The host removed you from the party.' : 'Connection closed. Refresh the lobby browser to reconnect.'));
   }
   enter(action) {
     if (this.role || this.pending) return;
@@ -66,6 +66,7 @@ class HostedConnection {
   create() { this.enter({t:'create',v:2}); }
   join(id) { this.enter({t:'join',code:String(id || ''),v:2}); }
   state(player) { this.player = player; if (this.role) this.send({t:'state',p:player}); }
+  kick(id) { if (this.role === 'host') this.send({t:'kick',id:String(id || '')}); }
   endMatch() { if (this.role === 'host') this.send({t:'endMatch'}); }
   // Pass signed match results to the rest of the room.
   share(proofs) { if (this.role && Array.isArray(proofs) && proofs.length) this.send({t:'share',proofs}); }

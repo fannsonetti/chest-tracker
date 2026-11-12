@@ -376,7 +376,7 @@ test('offline your own streak shows, with its timer across the top bar; a solo g
   assert.equal(t.run('rankedPlayers()[0].streak'),0, 'no streak once the game is over');
 });
 
-test('in a party you see your own streak and the leader, and only your own timer', () => {
+test('in a party every streak shows, and only your own timer', () => {
   const t = tracker();
   const id = t.run('s.id');
   const third = { id:'third', name:'Third', chests:0, matchStart:100 };
@@ -387,8 +387,8 @@ test('in a party you see your own streak and the leader, and only your own timer
   assert.ok(html.includes('Leading streak: 5"'), "the leader's timer is not shown");
   assert.match(t.run("$('streakTimer').title"),/within 44s/);
   assert.ok(html.includes('Your streak: 3'));
-  assert.ok(!html.includes('streak: 4'), "a third player's streak stays hidden");
-  assert.equal(t.run("($('roster').innerHTML.match(/class=\"streak active/g)||[]).length"),2);
+  assert.ok(html.includes("Third's streak: 4"), "a third player's streak shows too");
+  assert.equal(t.run("($('roster').innerHTML.match(/class=\"streak active/g)||[]).length"),3);
   t.roster([{ ...peer(4), streak:4, streakLeft:-5, streakWindow:41000, lead:true }, { ...third, chests:3 }, { id, name:'You', chests:2, matchStart:100 }]);
   assert.equal(t.run("rankedPlayers().find(p => p.id === 'teammate').streak"),0, 'a run-out streak is gone even before the relay says so');
 });
@@ -396,7 +396,7 @@ test('in a party you see your own streak and the leader, and only your own timer
 test('everyone sees the lead change hands; corrections, leaving and match resets do not', () => {
   const t = tracker();
   const id = t.run('s.id');
-  t.run('window.popups = []; window.api.showPopup = p => window.popups.push(p)');
+  t.run("window.popups = []; window.api.showPopup = p => p.kind === 'streakBroken' && window.popups.push(p)");   // takeovers only
   const me = (chests, extra = {}) => ({ id, name:'You', chests, matchStart:100, ...extra });
   const third = (chests, extra = {}) => ({ id:'third', name:'Third', chests, matchStart:100, ...extra });
   t.roster([me(0), peer(3), third(0)]);
@@ -417,14 +417,15 @@ test('everyone sees the lead change hands; corrections, leaving and match resets
 test('relays before 1.2.2 (one holder, no timers) still show the takeover', () => {
   const t = tracker();
   const id = t.run('s.id');
-  t.run('window.popups = []; window.api.showPopup = p => window.popups.push(p)');
+  t.run("window.popups = []; window.tiers = []; window.api.showPopup = p => (p.kind === 'streakTier' ? window.tiers : window.popups).push(p)");
   t.roster([{ id, name:'You', chests:0, matchStart:100 }, { ...peer(3), streak:3 }]);
   t.roster([{ id, name:'You', chests:3, matchStart:100, streak:3 }, { ...peer(3), streak:0 }]);
   assert.equal(t.run('window.popups.length'),1);
   assert.equal(t.run('window.popups[0].byMe'),true);
+  assert.equal(t.run("window.tiers.map(p => p.tier).join()"),'red', 'reaching 3 reveals Ember');
 });
 
-test('a pill shows when your streak or the leader reaches a new flame colour, once per climb', () => {
+test('a reveal shows when anyone reaches a new flame colour, once per climb', () => {
   const t = tracker();
   const id = t.run('s.id');
   t.run('window.popups = []; window.api.showPopup = p => window.popups.push(p)');
@@ -437,11 +438,14 @@ test('a pill shows when your streak or the leader reaches a new flame colour, on
   t.roster([lead(10), me(0), third(0)]);
   assert.equal(t.run('JSON.stringify(window.popups.map(p => [p.kind, p.name, p.n, p.from, p.tier, p.mine]))'),'[["streakTier","Friend",10,"red","orange",false]]');
   t.roster([lead(11), me(0), third(12)]);
-  assert.equal(t.run('window.popups.length'),1, "not again at 11, and the third player's streak stays private");
+  assert.equal(t.run('window.popups.length'),2, 'not again at 11; the third player reaching Flare shows');
+  assert.equal(t.run('window.popups[1].name'),'Third');
   t.run('bump("chests", 0)');
   t.roster([lead(12), me(10, 10), third(12)]);
   assert.equal(t.run('window.popups.at(-1).mine'),true, 'your own climb shows too');
   t.roster([lead(25), me(0, 10), third(12)]);
   assert.equal(t.run('window.popups.at(-1).tier'),'yellow');
-  assert.equal(t.run('window.popups.length'),3);
+  assert.equal(t.run('window.popups.length'),4);
+  t.roster([lead(0), me(0, 10), third(12)]); t.roster([lead(10), me(0, 10), third(12)]);
+  assert.equal(t.run('window.popups.at(-1).before'),1, 'climbing to Flare again this game counts the first time');
 });

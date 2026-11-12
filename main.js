@@ -215,6 +215,7 @@ ipcMain.on('netState', (_, p) => hosted.state(p));
 ipcMain.on('netHost', () => hosted.create());
 ipcMain.on('netJoin', (_, id) => hosted.join(id));
 ipcMain.on('netLeave', () => hosted.leave());
+ipcMain.on('netKick', (_, id) => hosted.kick(id));
 ipcMain.on('netEndMatch', () => hosted.endMatch());
 ipcMain.on('netNewMatch', (_, opened) => hosted.newMatch(opened === true));
 ipcMain.on('netShare', (_, proofs) => hosted.share(proofs));

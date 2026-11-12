@@ -141,12 +141,15 @@ test('leaderboards add matches and averages; career stats summarize your own mat
   assert.equal(c.perMin,1.5); assert.equal(c.recent.length,3);
 });
 
-test('streak colours: red 3, orange 10, yellow 20, blue 30, purple 40, Celestial 50, Eclipse 75, Supernova 100', () => {
-  const { streakTier, TIER_ORDER, TIER_MIN } = require('./match');
+test('streak colours: red 3, orange 10, yellow 20, blue 30, purple 40, Aurora 50, Quasar 75, Singularity 100', () => {
+  const { streakTier, tierRank, TIER_ORDER, TIER_MIN, TIER_LABEL } = require('./match');
   assert.deepEqual([3, 9, 10, 20, 30, 40, 49, 50, 74, 75, 99, 100, 300].map(streakTier),
-    ['red','red','orange','yellow','blue','purple','purple','celestial','celestial','eclipse','eclipse','supernova','supernova']);
-  assert.deepEqual(TIER_ORDER,['red','orange','yellow','blue','purple','celestial','eclipse','supernova']);
-  assert.equal(TIER_MIN.red,3); assert.equal(TIER_MIN.supernova,100);
+    ['red','red','orange','yellow','blue','purple','purple','aurora','aurora','quasar','quasar','singularity','singularity']);
+  assert.deepEqual(TIER_ORDER,['red','orange','yellow','blue','purple','aurora','quasar','singularity']);
+  assert.deepEqual(TIER_ORDER.map(t => TIER_LABEL[t]),['Ember','Flare','Solar','Plasma','Nebula','Aurora','Quasar','Singularity']);
+  assert.equal(TIER_MIN.red,3); assert.equal(TIER_MIN.singularity,100);
+  // No streak ranks below Ember, so reaching 3 is a new colour; 0 -> 100 at once is one step to the top.
+  assert.deepEqual([0, 2, 3, 10, 100].map(tierRank), [-1, -1, 0, 1, 7]);
 });
 
 test('boards filter by period and rank CPM by chests over played minutes; career counts flame milestones', () => {
@@ -230,17 +233,23 @@ test('the streak window is 45s and shrinks with every flame colour', () => {
   assert.equal(slow.longest('a'),10);
 });
 
-test('being passed keeps your streak, and passing back retakes the lead', () => {
+test('being passed drops you to the tier below; passing back retakes the lead', () => {
+  const { droppedStreak } = require('./match');
+  assert.deepEqual([2,3,9,10,19,20,25,49,50,75,99,100,140].map(droppedStreak),[0,0,0,3,3,10,10,30,40,50,50,75,75]);
   const s = duo();
-  open(s,'a',sec(0)); open(s,'a',sec(1)); open(s,'a',sec(2));      // a leads at 3
-  open(s,'b',sec(3)); open(s,'b',sec(4)); open(s,'b',sec(5)); open(s,'b',sec(6));   // b passes at 4
-  assert.equal(s.leader(sec(6)),'b');
-  assert.equal(s.current('a',sec(6)),3, 'a keeps their streak');
-  open(s,'a',sec(7));
-  assert.equal(s.current('a',sec(7)),4); assert.equal(s.leader(sec(7)),'b', 'a tie stays with the leader');
-  open(s,'a',sec(8));
-  assert.equal(s.current('a',sec(8)),5); assert.equal(s.leader(sec(8)),'a', 'a passes back');
-  assert.equal(s.current('b',sec(8)),4);
+  for (let i=0; i<20; i++) open(s,'a',sec(i));                       // a leads at Solar 20
+  for (let i=0; i<21; i++) open(s,'b',sec(20+i));                    // b passes at 21
+  assert.equal(s.leader(sec(40)),'b');
+  assert.equal(s.current('a',sec(40)),10, 'Solar drops to 10');
+  assert.deepEqual(s.streakOf('a',sec(40)), { n:10, left:30000, window:30000 }, 'with a fresh Flare window');
+  open(s,'a',sec(41)); assert.equal(s.current('a',sec(41)),11, 'and climbs on from there');
+  const e = duo();
+  open(e,'a',sec(0)); open(e,'a',sec(1)); open(e,'a',sec(2));      // a leads at Ember 3
+  for (let i=0; i<4; i++) open(e,'b',sec(3+i));                      // b passes at 4
+  assert.equal(e.current('a',sec(6)),0, 'Ember has no tier below: it ends');
+  for (let i=0; i<5; i++) open(e,'a',sec(7+i));
+  assert.equal(e.leader(sec(11)),'a', 'a passes back');
+  assert.equal(e.current('b',sec(11)),0);
 });
 
 test('passing the leader takes the lead; the streak bonus only counts while you lead', () => {
@@ -253,8 +262,11 @@ test('passing the leader takes the lead; the streak bonus only counts while you 
   assert.equal(s.leader(sec(6)),'a', 'a tie stays with the leader');
   open(s,'b',sec(7));                                                   // b passes: 4 while leading, (0.25+0.1)x2
   assert.equal(s.leader(sec(7)),'b');
-  assert.equal(s.score('a'),1.65 + 2, 'plus the first chest, x2');
-  assert.equal(s.score('b'),1.5 + 0.7 + 2, 'plus the last chest, x2');
+  near(s.score('a',sec(7)),1.65 + 2 + 0.04, 'plus the first chest x2, plus 4s leading at 0.01/s x1 other player');
+  near(s.score('b',sec(7)),1.5 + 0.7 + 2, 'plus the last chest, x2');
+  near(s.score('b',sec(17)),4.2 + 0.1, 'b earns while leading');
+  near(s.score('b',sec(99)),4.2 + 0.45, 'until the streak runs out');
+  s.stop(sec(12)); near(s.score('b',sec(99)),4.2 + 0.05, 'and stops when the match ends');
   open(s,'b',sec(8)); s.observe('b',4,sec(8));                          // a correction takes one back
   assert.equal(s.current('b',sec(8)),4);
 });

@@ -120,6 +120,7 @@ function createRelay({ signingKey = loadSigningKey() } = {}) {
         if (room.host !== c) return fail(c, 'Only the host can end a match');
         if (room.ended) return;
         room.lastEnd = now; room.ended = true;
+        room.streaks.stop(now);
         const id = randomUUID(), players = room.streaks.recap([...room.members.values()]);
         // Points are scored here from the relay's own receipt log and signed,
         // so the app can trust them on its leaderboards.
@@ -140,6 +141,12 @@ function createRelay({ signingKey = loadSigningKey() } = {}) {
         if (!proofs.length) return;
         const from = c.room.members.get(c).id;
         for (const peer of c.room.members.keys()) if (peer !== c) send(peer, { t:'shared', from, proofs });
+      } else if (m.t === 'kick' && c.room) {
+        if (c.room.host !== c) return fail(c, 'Only the host can kick players');
+        const peer = [...c.room.members].find(([q, p]) => q !== c && p.id === String(m.id || ''))?.[0];
+        if (!peer) return;
+        // ponytail: no ban list, a kicked player can rejoin; add one per room if that gets abused.
+        detach(peer); peer.close(4000, 'Kicked');
       } else if (m.t === 'newMatch' && c.room) {
         const room = c.room;
         // The host can start the next match; anyone can by opening a chest.

@@ -11,7 +11,6 @@ const METRICS = [
   { key:'avg', label:'Average', column:'avg', sub:'per match', extra:[['chests','Best'], ['matches','Matches']] },
   { key:'played', label:'Matches', column:'matches', sub:'played', extra:[['total','Total chests'], ['avg','Avg']] }
 ];
-addRainbowWave(document);
 const COLUMN_LABEL = { points:'Points', chests:'Best', cpm:'CPM', bestStreak:'Streak', avg:'Avg', matches:'Matches' };
 // Weekly and monthly boards count games that ended since the week (Monday) or month began.
 const PERIODS = [['week','This week'], ['month','This month'], ['all','Lifetime']];
@@ -67,6 +66,7 @@ $('testSound').onclick = () => window.playTrackerClick();
 $('createRoom').onclick = () => window.api.netHost();
 $('refreshLobbies').onclick = () => window.api.browseLobbies();
 $('leave').onclick = () => window.api.netLeave();
+$('players').onclick = e => { const id = e.target.closest('[data-kick]')?.dataset.kick; if (id) window.api.netKick(id); };
 $('endMatch').onclick = () => window.api.command(current?.s?.cur?.ended ? 'newGame' : 'endMatch');
 $('newSession').onclick = () => window.api.command('newSession');
 $('quit').onclick = () => window.api.quit();
@@ -146,8 +146,10 @@ function render(data) {
   $('endMatch').textContent = s.cur?.ended ? 'New game' : 'End match';
   $('hostNote').textContent = net.status === 'client' ? 'The host ends the match and starts the next one for everyone.' : s.cur?.ended ? 'The match is over. Start a new game when everyone is ready.' : 'End the match to show everyone’s recap. The next game starts on the first chest or New game.';
   $('connection').innerHTML = net.error ? `<p class="error">${esc(net.error)}</p>` : '';
-  $('players').innerHTML = linked ? '<h2>In this room</h2><div class="group"><table class="table"><tr><th>Player</th><th>Opened this game</th></tr>' +
-    net.players.slice().sort((a,b)=>b.chests-a.chests).map(p => `<tr${p.id === s.id ? ' class="me"' : ''}><td>${esc(p.name)}${p.id === s.id ? '<span class="you">YOU</span>' : ''}</td><td class="num-strong">${p.chests}</td></tr>`).join('') + '</table></div>' : '';
+  const hosting = net.status === 'host';
+  $('players').innerHTML = linked ? '<h2>In this room</h2><div class="group"><table class="table"><tr><th>Player</th><th>Opened this game</th>' + (hosting ? '<th></th>' : '') + '</tr>' +
+    net.players.slice().sort((a,b)=>b.chests-a.chests).map(p => `<tr${p.id === s.id ? ' class="me"' : ''}><td>${esc(p.name)}${p.id === s.id ? '<span class="you">YOU</span>' : ''}</td><td class="num-strong">${p.chests}</td>` +
+      (hosting ? `<td>${p.id === s.id ? '' : `<button class="ghost" data-kick="${esc(p.id)}" aria-label="Kick ${esc(p.name)}">Kick</button>`}</td>` : '') + '</tr>').join('') + '</table></div>' : '';
   $('sessionStats').innerHTML = session.map(([label,value]) => `<div class="stat"><span>${esc(label)}</span><b>${esc(value)}</b></div>`).join('');
 
   const history = JSON.stringify([s.history, s.id]);
