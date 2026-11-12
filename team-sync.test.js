@@ -4,14 +4,14 @@ const vm = require('node:vm');
 const test = require('node:test');
 const source = fs.readFileSync('index.html', 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 function tracker() {
-  let onNet;
+  let onNet, pollStreak;
   const element = { hidden:true, style: { setProperty() {} }, classList: { toggle() {} } };
   const elements = new Map();
   const context = vm.createContext({
     window: { api: { onAction() {}, onNet(cb) { onNet = cb; }, netState() {} }, addEventListener() {} },
     document: { getElementById(id) { if (!elements.has(id)) elements.set(id, { ...element }); return elements.get(id); }, querySelectorAll() { return []; }, querySelector() { return { classList: { toggle() {} } }; }, addEventListener() {} },
     localStorage: { getItem() { return null; }, setItem() {} },
-    setInterval() {},
+    setInterval(fn, ms) { if (ms === 500) pollStreak = fn; },
     setTimeout() { return 0; },
     clearTimeout() {},
     requestAnimationFrame() {},
@@ -22,6 +22,7 @@ function tracker() {
   return {
     run: code => vm.runInContext(code, context),
     roster: players => onNet({ status: 'client', players }),
+    pollStreak: () => pollStreak(),
     counts: () => JSON.parse(vm.runInContext('JSON.stringify([s.chests, s.teamChests, s.cur.chests, s.cur.teamChests])', context)),
     off: () => onNet({ status: 'off', players: [] }),
   };
@@ -423,6 +424,33 @@ test('relays before 1.2.2 (one holder, no timers) still show the takeover', () =
   assert.equal(t.run('window.popups.length'),1);
   assert.equal(t.run('window.popups[0].byMe'),true);
   assert.equal(t.run("window.tiers.map(p => p.tier).join()"),'red', 'reaching 3 reveals Ember');
+});
+
+test('a personal streak loss and lead handoff play one death in either order', () => {
+  for (const clockFirst of [false, true]) {
+    const t = tracker();
+    const id = t.run('s.id');
+    t.run(`s.hidden = true; s.sound = true; s.cur.chests = 100;
+      window.lossSounds = 0; window.playStreakLost = () => window.lossSounds++;
+      window.popups = []; window.api.showPopup = p => window.popups.push(p);`);
+    const own = { id, name:'You', chests:100, matchStart:100, streak:100, streakLeft:8000, lead:true };
+    const next = { ...peer(20), streak:20, streakLeft:16000, lead:false };
+    t.roster([own, next]);
+    t.pollStreak();
+    if (clockFirst) {
+      t.run('net.players.find(p => p.id === s.id).streakUntil = Date.now() - 1');
+      t.pollStreak();
+    }
+    t.roster([{ ...own, streak:0, streakLeft:0, lead:false }, { ...next, lead:true }]);
+    t.pollStreak();
+    const popups = JSON.parse(t.run('JSON.stringify(window.popups)'));
+    const handoff = popups.find(p => p.kind === 'streakBroken');
+    assert.equal(handoff.lossAlreadyShown, clockFirst);
+    assert.equal(handoff.dropTo, 0);
+    assert.equal(handoff.n, 100);
+    assert.equal(popups.filter(p => p.kind === 'streakLost').length, clockFirst ? 1 : 0);
+    assert.equal(t.run('window.lossSounds'), 1);
+  }
 });
 
 test('a reveal shows when anyone reaches a new flame colour, once per climb', () => {

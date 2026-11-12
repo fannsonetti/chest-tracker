@@ -461,8 +461,17 @@ function checkStreakBreaks(previous, current) {
   const corrected = current.players.some(p => { const b = previous.players.find(q => q.id === p.id); return b && b.matchStart === p.matchStart && p.chests < b.chests; });
   if (corrected) return;
   const dropTo = asStreak(current.players.find(p => p.id === was.id)?.streak || 0);
-  window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:now.name, n:asStreak(was.streak || 0), newN:asStreak(now.streak || 0), dropTo,
-    mine:was.id === s.id, byMe:now.id === s.id, opacity:s.opacity, sound:s.sound });
+  const n = asStreak(was.streak || 0), mine = was.id === s.id;
+  let lossAlreadyShown = false;
+  if (mine && n && !dropTo) {
+    // The local clock can notice the expiry before the relay announces a
+    // successor. Match the old run so only one death plays in either order.
+    lossAlreadyShown = ownLoss?.matchStart === was.matchStart && ownLoss?.chests === was.chests && ownLoss?.streak === was.streak;
+    ownStreak = 0;
+    if (!lossAlreadyShown && s.sound) window.playStreakLost?.();
+  }
+  window.api.showPopup?.({ kind:'streakBroken', owner:was.name, breaker:now.name, n, newN:asStreak(now.streak || 0), dropTo,
+    mine, byMe:now.id === s.id, lossAlreadyShown, opacity:s.opacity, sound:s.sound });
 }
 // A milestone reveal (milestones.js) the moment anyone's streak reaches a new flame colour
 // (TIER_ORDER in match.js). Once per climb: dropping back and climbing
@@ -997,10 +1006,15 @@ window.api.onCommand?.(command => {
 function testPopup(kind) {
   const me = s.name || 'You', base = { opacity:s.opacity, sound:s.sound };
   const tier = TIER_ORDER.indexOf(kind);
-  if (kind === 'overtaken') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:me, breaker:'Rival', n:12, newN:13, dropTo:3, mine:true });
-  else if (kind === 'overtake') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:'Rival', breaker:me, n:24, newN:25, dropTo:10, byMe:true });
-  else if (kind === 'expired') { window.api.showPopup?.({ ...base, kind:'streakLost', n:23, tier:'purple' }); if (s.sound) window.playStreakLost?.(); }
-  else if (tier >= 0) window.api.showPopup?.({ ...base, kind:'streakTier', name:me, n:TIER_MIN[kind], tier:kind, from:TIER_ORDER[tier - 1], mine:true });
+  const expiryTier = kind.startsWith('expired:') && kind.slice(8);
+  // Overtakes: a streak two into the chosen tier is passed by one more.
+  const [passKind, passTier = kind === 'overtake' ? 'yellow' : 'orange'] = kind.split(':'), n = (TIER_MIN[passTier] || 12) + 2;
+  if (passKind === 'overtaken') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:me, breaker:'Rival', n, newN:n + 1, dropTo:droppedStreak(n), mine:true });
+  else if (passKind === 'overtake') window.api.showPopup?.({ ...base, kind:'streakBroken', owner:'Rival', breaker:me, n, newN:n + 1, dropTo:droppedStreak(n), byMe:true });
+  else if (TIER_ORDER.includes(expiryTier)) {
+    window.api.showPopup?.({ ...base, kind:'streakLost', n:TIER_MIN[expiryTier], tier:expiryTier });
+    if (s.sound) window.playStreakLost?.();
+  } else if (tier >= 0) window.api.showPopup?.({ ...base, kind:'streakTier', name:me, n:TIER_MIN[kind], tier:kind, from:TIER_ORDER[tier - 1], mine:true });
   else if (kind === 'best') window.api.showPopup?.({ ...base, kind:'personalBest', n:42, best:41 });
   else if (kind === 'record') window.api.showPopup?.({ ...base, kind:'personalBest', record:true, n:80, best:79 });
   else if (kind === 'lost') window.playStreakLost?.();
@@ -1010,16 +1024,17 @@ function testPopup(kind) {
 setInterval(renderSession, 1000);
 setInterval(renderClock, 1000);
 // Streaks run out on their own, so the roster redraws while one is live.
-// Your own streak running out plays a falling tone and a round pill whose
-// flame burns out. Taking a chest back with a correction does not count, nor
-// does the game ending.
-let ownStreak = 0, ownChests = 0;
+// An expired personal streak plays a falling tone and its tier's loss
+// scene. Corrections and completed matches do not count.
+let ownStreak = 0, ownChests = 0, ownLoss = null;
 setInterval(() => {
   const players = rankedPlayers(), n = players.find(p => p.id === s.id)?.streak || 0;
   if (ownStreak && !n && !s.cur.ended && s.cur.chests >= ownChests) {
+    ownLoss = net.players.find(p => p.id === s.id) || null;
     if (s.sound) window.playStreakLost?.();
     if (s.streakPopups) window.api.showPopup?.({ kind:'streakLost', n:ownStreak, tier:streakTier(ownStreak), opacity:s.opacity });
   }
+  if (n) ownLoss = null;
   const changed = n !== ownStreak;
   ownStreak = n; ownChests = s.cur.chests;
   if (!s.hidden && (changed || players.some(p => p.streak))) renderRoster();

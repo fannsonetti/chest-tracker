@@ -20,6 +20,8 @@
       "index.html",
       "match.js",
       "milestones.js",
+      "streak-deaths.js",
+      "streak-overtakes.js",
       "recap.css",
       "tiers.css",
       "popup.html",

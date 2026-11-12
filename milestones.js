@@ -94,6 +94,7 @@ function glow(c, x, y, r, col, a) {
   c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, MS_TAU); c.fill();
 }
 // A fire-coloured flame: hot centre, body colour, darker edge, restrained glow.
+// o.heart tints the near-white middle of the inner flame (a cooling ember).
 function paintFire(c, o, pal) {
   const sh = msShape(), P = flamePts(sh.outer, o), Q = flamePts(sh.inner, o);
   const s = (o.s ?? 1) * MS_S, x = o.x ?? MS_CX, y = o.y ?? MS_CY;
@@ -104,7 +105,7 @@ function paintFire(c, o, pal) {
   trace(c, P); c.fillStyle = g; c.fill();
   c.shadowBlur = 0; c.lineWidth = 1.2; c.strokeStyle = rgba(pal.edge, .9); c.stroke();
   const g2 = c.createRadialGradient(x, y + 2.4 * s, 0, x, y + 2 * s, 3.6 * s);
-  g2.addColorStop(0, 'rgba(255,255,240,.95)'); g2.addColorStop(1, rgba(o.core || pal.core, .85));
+  g2.addColorStop(0, rgba(o.heart || '255,255,240', .95)); g2.addColorStop(1, rgba(o.core || pal.core, .85));
   trace(c, Q); c.fillStyle = g2; c.fill();
   c.restore();
   return P;
@@ -160,6 +161,20 @@ const mix = (a, b, x) => { const q = b.split(','); return a.split(',').map((v, i
 const mixPal = (a, b, x) => ({ edge:mix(a.edge, b.edge, x), body:mix(a.body, b.body, x), core:mix(a.core, b.core, x), glow:mix(a.glow, b.glow, x), blur:lerp(a.blur, b.blur, x) });
 const whiten = (col, x) => col.map(v => Math.round(v + (255 - v) * clamp01(x))).join(',');
 
+// The last fully visible frame is also the pose used to begin the next scene.
+const milestoneEndTime = scene => (scene.ms + MS_HOLD - MS_FADE) / 1000;
+const initMilestoneScene = (tier, scene) => scene.init?.(seeded(7 + tier.length * 131)) ?? {};
+
+function renderScene(c, dpr, scene, t, st) {
+  c.save();
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.globalCompositeOperation = 'source-over';
+  c.globalAlpha = 1;
+  c.clearRect(0, 0, MS_W, MS_H);
+  scene.draw(c, t, st);
+  c.restore();
+}
+
 // ---------- the tier below ----------
 // Every reveal from Flare up opens on the flame it grows out of: the previous
 // tier's scene drawn at its settled end (same seed as its own reveal), through
@@ -168,11 +183,9 @@ const GHOST = {};
 function ghost(c, tier, t, o = {}) {
   if ((o.a ?? 1) <= .004) return;
   const sc = SCENES[tier], k = c.getTransform().a;
-  const g = GHOST[tier] ||= { st:sc.init ? sc.init(seeded(7 + tier.length * 131)) : {}, cv:document.createElement('canvas') };
-  if (g.cv.width !== MS_W * k) { g.cv.width = MS_W * k; g.cv.height = MS_H * k; }
-  const x = g.cv.getContext('2d');
-  x.setTransform(k, 0, 0, k, 0, 0); x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1; x.clearRect(0, 0, MS_W, MS_H);
-  sc.draw(x, sc.ms / 1000 + 1 + t, g.st);
+  const g = GHOST[tier] ||= { st:initMilestoneScene(tier, sc), cv:document.createElement('canvas') };
+  if (g.cv.width !== Math.round(MS_W * k)) { g.cv.width = Math.round(MS_W * k); g.cv.height = Math.round(MS_H * k); }
+  renderScene(g.cv.getContext('2d'), k, sc, milestoneEndTime(sc) + t, g.st);
   const s = o.s ?? 1, ox = o.x ?? MS_CX, oy = o.y ?? MS_CY;
   c.save(); c.globalAlpha = o.a ?? 1; if (o.filter) c.filter = o.filter;
   c.translate(ox, oy); c.scale(s, s); c.translate(-ox, -oy);
@@ -181,6 +194,107 @@ function ghost(c, tier, t, o = {}) {
 }
 
 // ---------- tier bodies ----------
+function emberPose(t) {
+  const grow = seg(t, .1, .42), sc = grow < 1 ? Math.max(.02, outBack(grow)) : 1;
+  const after = Math.max(0, t - .42), flick = Math.exp(-after * 5) * Math.sin(after * 38) * .07;
+  return { s:sc * (1 + flick), sy:1 - flick * .6, y:MS_CY + (1 - sc) * 14, t,
+    wob:lerp(.7, .2, seg(t, .35, 1)), a:seg(t, .1, .2) * (1 - Math.max(0, flick) * 2.5) };
+}
+
+function flarePose(t) {
+  const surge = out3(seg(t, .28, .5)) * (1 - inOut(seg(t, .52, 1)));
+  const hot = seg(t, .55, .9), sc = t < .26 ? lerp(1, .76, inOut(seg(t, 0, .26))) : lerp(.76, 1, out3(seg(t, .26, .55)));
+  return { s:sc, y:MS_CY + (1 - sc) * 18, t, wob:.25 + surge * .9, curl:surge * 1.6, stretch:surge * .42,
+    core:hot ? '255,' + Math.round(205 + 40 * hot) + ',' + Math.round(100 + 80 * hot) : null };
+}
+
+function flameFootpoint(P, angle, x, y) {
+  let point = P[0], nearest = Infinity;
+  for (const q of P) {
+    const a = Math.atan2(q[1] - y, q[0] - x) - angle;
+    const distance = Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
+    if (distance < nearest) { point = q; nearest = distance; }
+  }
+  return point;
+}
+
+// Two rooted plasma strands and their glowing sheath. The light follows the
+// same curve as the material, including when a prominence leans or lifts off.
+function solarProminence(c, A, B, { x = MS_CX, y = MS_CY, height, alpha, u, lean = 0, flare = 0, phase = 0, tear = 0 }) {
+  if (alpha <= .002) return;
+  function loop(scale) {
+    const handle = foot => {
+      const [px, py] = outward(foot, height * 1.33 * scale, x, y);
+      return [px - (py - foot[1]) * lean, py + (px - foot[0]) * lean];
+    };
+    const a = handle(A), b = handle(B);
+    c.beginPath(); c.moveTo(...A); c.bezierCurveTo(...a, ...b, ...B);
+    return [a, b];
+  }
+  for (const scale of [.8, 1.14]) {
+    loop(scale); c.lineWidth = .9; c.strokeStyle = rgba('255,226,120', (.5 - .26 * flare) * alpha * (1 - tear)); c.stroke();
+  }
+  const [a, b] = loop(1);
+  const start = .15 * tear, end = 1 - .36 * tear;
+  const point = s => {
+    const v = 1 - s, lift = Math.sin(s * Math.PI) * flare;
+    return [0, 1].map(i => v ** 3 * A[i] + 3 * v * v * s * a[i] + 3 * v * s * s * b[i] + s ** 3 * B[i]
+      + lift * (2.2 * Math.sin(s * 15 + phase + 1.8 * i) + .8 * Math.sin(s * 24 - phase * 1.2 + i)));
+  };
+  let core = rgba('255,250,222', .95 * alpha);
+  if (flare > .002) {
+    // A broad, turbulent sheet of hot gas around the prominence's filaments.
+    const spine = Array.from({ length:31 }, (_, i) => point(lerp(start, end, i / 30)));
+    const left = [], right = [];
+    for (const [i, p] of spine.entries()) {
+      const s = i / 30, prev = spine[Math.max(0, i - 1)], next = spine[Math.min(30, i + 1)];
+      const dx = next[0] - prev[0], dy = next[1] - prev[1], len = Math.hypot(dx, dy) || 1;
+      const w = flare * Math.sin(Math.PI * s) * (5.4 + 2.8 * Math.sin(s * 18 - phase));
+      left.push([p[0] - dy / len * w, p[1] + dx / len * w]);
+      right.push([p[0] + dy / len * w * .59, p[1] - dx / len * w * .59]);
+    }
+    const [px, py] = point(.5), g = c.createRadialGradient(px, py, 0, px, py, height * .77 + 9);
+    g.addColorStop(0, rgba('255,215,110', .73 * alpha));
+    g.addColorStop(.53, rgba('255,135,24', .57 * alpha)); g.addColorStop(1, rgba('255,82,14', 0));
+    c.fillStyle = g; trace(c, left.concat(right.reverse())); c.fill();
+    trace(c, spine, false);
+    const filament = c.createLinearGradient(...spine[0], ...spine.at(-1));
+    filament.addColorStop(0, rgba('255,210,107', .95 * alpha * (1 - .91 * tear)));
+    filament.addColorStop(.53, core);
+    filament.addColorStop(1, rgba('255,224,151', .95 * alpha * (1 - .94 * tear)));
+    core = filament;
+  }
+  c.lineWidth = 11 * alpha; c.strokeStyle = rgba('255,150,30', .16 * alpha); c.stroke();
+  c.lineWidth = 4 * alpha + .6; c.strokeStyle = rgba('255,206,70', .6 * alpha); c.stroke();
+  c.lineWidth = 1.5; c.strokeStyle = core; c.stroke();
+  const K = point(lerp(start, end, u));
+  glow(c, K[0], K[1], 6, '255,250,215', .9 * alpha);
+  glow(c, A[0], A[1], 8, '255,220,110', .5 * alpha * (1 - tear));
+  glow(c, B[0], B[1], 8, '255,220,110', .5 * alpha * (1 - tear));
+}
+
+// The feathered corona Solar bursts out of: a soft ring of radius R, fine rays.
+function solarCorona(c, t, R, ca, rays, y = MS_CY) {
+  if (ca <= 0) return;
+  const g = c.createRadialGradient(MS_CX, y, R * .72, MS_CX, y, R * 1.32);
+  g.addColorStop(0, rgba('255,220,80', 0)); g.addColorStop(.45, rgba('255,214,70', .32 * ca)); g.addColorStop(1, rgba('255,200,60', 0));
+  c.fillStyle = g; c.beginPath(); c.arc(MS_CX, y, R * 1.32, 0, MS_TAU); c.fill();
+  c.lineWidth = .8; c.strokeStyle = rgba('255,236,140', .5 * ca); c.beginPath();
+  rays.forEach(([len, ph], k) => {
+    const a = k / rays.length * MS_TAU + t * .18, L = R * (.05 + .16 * len * (.6 + .4 * Math.sin(t * 5 + ph)));
+    c.moveTo(MS_CX + Math.cos(a) * R * .97, y + Math.sin(a) * R * .97); c.lineTo(MS_CX + Math.cos(a) * (R + L), y + Math.sin(a) * (R + L));
+  });
+  c.stroke();
+  c.beginPath(); c.arc(MS_CX, y, R, 0, MS_TAU); c.lineWidth = 1.2; c.strokeStyle = rgba('255,244,190', .8 * ca); c.stroke();
+}
+
+function solarShimmer(c, P, t, alpha, x = MS_CX, y = MS_CY) {
+  c.save(); trace(c, P); c.clip();
+  for (let i = 0; i < 3; i++) glow(c, x + Math.sin(t * 1.7 + i * 2.1) * 16,
+    y - 6 + Math.cos(t * 1.3 + i * 2) * 18, 22, '255,255,230', .16 * alpha);
+  c.restore();
+}
+
 // A plasma-globe tendril from A to B: a smooth line with travelling ripples, pinned at both ends.
 function tendril(A, B, t, d) {
   const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, pts = [];
@@ -217,6 +331,63 @@ function plasmaBody(c, P, Q, t, st) {
   c.restore();
   c.save(); trace(c, P); c.lineWidth = 1.3; c.strokeStyle = 'rgba(185,238,255,.95)'; c.shadowColor = 'rgba(69,168,255,.95)'; c.shadowBlur = 12; c.stroke(); c.restore();
 }
+
+function plasmaRim(c, P, t, arcs, alpha = 1) {
+  for (const a of arcs) {
+    const lt = (t - a.at) / .13;
+    if (lt <= 0 || lt >= 1) continue;
+    const A = outward(P[a.i], 1), B = outward(P[(a.i + a.span) % P.length], 1);
+    drawBolt(c, bolt(A, B, seeded(a.seed + Math.floor(lt * 3)), .45, 3, -a.out), alpha * (1 - lt));
+  }
+}
+
+function nebulaWisp(c, w, r, a, alpha, length = 1, flat = .62, scatter = 0) {
+  if (alpha <= .002) return;
+  const span = w.len * .45 * length;
+  if (scatter > .002) {
+    const points = Array.from({ length:25 }, (_, i) => {
+      const s = i / 24, angle = a - span * (1 - s);
+      const radius = r * (1 + scatter * (1 - s) * (.29 * Math.sin(w.a0 + s * 4) - .31));
+      return [MS_CX + radius * Math.cos(angle), MS_CY + radius * Math.sin(angle) * flat];
+    });
+    trace(c, points, false);
+  } else {
+    c.beginPath(); c.ellipse(MS_CX, MS_CY, r, r * flat, 0, a - span, a);
+  }
+  c.lineCap = 'round';
+  c.lineWidth = w.wid; c.strokeStyle = rgba(w.col, .07 * alpha); c.stroke();
+  c.lineWidth = w.wid * .4; c.strokeStyle = rgba(w.col, .1 * alpha); c.stroke();
+  c.save(); c.translate(MS_CX + Math.cos(a) * r, MS_CY + Math.sin(a) * r * flat); c.rotate(a + Math.PI / 2); c.scale(1.9, 1);
+  glow(c, 0, 0, w.wid, w.col, .2 * alpha); c.restore();
+}
+
+function nebulaBody(c, P, t, blobs, alpha) {
+  c.save(); c.globalAlpha = alpha; trace(c, P);
+  const g = c.createRadialGradient(MS_CX, MS_CY + 10, 0, MS_CX, MS_CY, 80);
+  g.addColorStop(0, '#c9a2ff'); g.addColorStop(.4, '#7a4bdc'); g.addColorStop(1, '#2a1a6e');
+  c.fillStyle = g; c.fill(); c.clip(); c.globalCompositeOperation = 'lighter';
+  for (const [ph, sp] of blobs) glow(c, MS_CX + Math.cos(t * sp + ph) * 20,
+    MS_CY - 4 + Math.sin(t * sp * 1.3 + ph) * 24, 26, ph > 3 ? '240,200,255' : '150,100,255', .22);
+  c.restore();
+  c.save(); trace(c, P); c.lineWidth = 1.2; c.strokeStyle = rgba('214,180,255', .85 * alpha);
+  c.shadowColor = 'rgba(183,121,255,.9)'; c.shadowBlur = 12; c.stroke(); c.restore();
+}
+
+const nebulaMote = (p, t) => [MS_CX + p.tgt[0] * MS_S + Math.sin(t * .9 + p.a0) * 1.5,
+  MS_CY + p.tgt[1] * MS_S + Math.cos(t * .7 + p.a0) * 1.5];
+
+function nebulaDust(c, p, t, x, y, alpha) {
+  c.fillStyle = rgba(p.col, alpha * (.55 + .35 * Math.sin(t * 3 + p.a0)));
+  c.fillRect(x - p.sz / 2, y - p.sz / 2, p.sz, p.sz);
+}
+
+function nebulaStar(c, s, t, dx = 0, dy = 0, alpha = 1) {
+  const lt = t - s.at;
+  if (lt <= 0) return;
+  const light = bell(lt % 1.7, 0, .5);
+  star(c, MS_CX + s.x + dx, MS_CY + s.y + dy, s.r * light, .9 * light * alpha);
+}
+
 // A curtain of aurora: 2px vertical slices of light, each a gradient from a
 // soft bright hem up through cyan to violet and out. hem, H and I give each
 // slice's hem height, length and brightness; keep their ripples slow along x
@@ -233,10 +404,12 @@ function curtain(c, x0, x1, hem, H, I, hue) {
 }
 // Aurora: a window onto a night sky with curtains of light hanging in it.
 const AUR_CURTAINS = [{ y:MS_CY + 34, amp:7, ph:0, h:80, hue:138 }, { y:MS_CY + 8, amp:6, ph:2.2, h:64, hue:156 }, { y:MS_CY - 20, amp:5, ph:4.1, h:46, hue:172 }];
-function auroraBody(c, P, t, a) {
+// sky sets the night behind the curtains apart from a, so a streak loss can
+// lift the light out of the window on its own.
+function auroraBody(c, P, t, a, sky = a) {
   const top = MS_CY - 64, bot = MS_CY + 46;
   c.save(); trace(c, P); c.clip();
-  c.globalAlpha = a;
+  c.globalAlpha = sky;
   const g = c.createLinearGradient(0, bot, 0, top);
   g.addColorStop(0, '#0e5c4a'); g.addColorStop(.5, '#0f4258'); g.addColorStop(1, '#30206c');
   c.fillStyle = g; c.fillRect(MS_CX - 60, top, 120, bot - top);
@@ -247,20 +420,97 @@ function auroraBody(c, P, t, a) {
     x => a * (.68 + .32 * Math.sin(x * .08 - t * 2.6 + cu.ph)) * (.86 + .14 * Math.sin(x * .9 + t * 3)), cu.hue);
   c.restore();
 }
+
+function auroraRim(c, P, alpha) {
+  c.save(); trace(c, P); c.lineWidth = 1.2; c.strokeStyle = rgba('210,255,245', .85 * alpha);
+  c.shadowColor = 'rgba(90,255,220,.95)'; c.shadowBlur = 12; c.stroke(); c.restore();
+}
+
+function auroraVeil(c, P, t, height, intensity, { span = 46, lift = 0, drift = 0 } = {}) {
+  if (intensity <= .002) return;
+  const center = MS_CX + drift, x0 = center - span, x1 = center + span;
+  const fold = x => Math.sin(Math.PI * (x - x0) / (x1 - x0));
+  const hem = x => {
+    const sample = MS_CX + (x - center) * 46 / span;
+    let y = MS_CY - 14;
+    for (const p of P) if (Math.abs(p[0] - sample) < 2.5 && p[1] < y) y = p[1];
+    return y + 3 - lift + 3 * Math.sin(x * .05 + t * 1.7);
+  };
+  curtain(c, x0, x1, hem,
+    x => height * (.45 + .55 * fold(x)) * (.7 + .3 * Math.sin(x * .04 + t * 1.3)),
+    x => intensity * fold(x) * (.6 + .4 * Math.sin(x * .07 - t * 2.4)) * (.88 + .12 * Math.sin(x * .8 + t * 5)), 150);
+}
+
+function auroraRibbon(c, rb, i, t, conv, body, { open = 0, lift = 0, drift = 0, alpha = 1 } = {}) {
+  const aura = i < 2, N = 56;
+  const m = inOut(seg(t, .9 + rb.d, 1.62)) * (1 - open), drop = out3(seg(t, .15 + rb.d, 1.15));
+  const k = lerp(rb.k, aura ? [1.3, 1.15][i] : 1 - i * .1, conv);
+  const loop = flamePts(msShape().outer, { s:k, t, wob:.1, y:MS_CY - (aura ? 6 * conv : 0) });
+  const Y = lerp(-40 - i * 14, MS_CY - 36 + i * 11, drop) - lift;
+  const a = alpha * seg(t, .15 + rb.d, .6) * (aura ? 1 - .2 * body + .1 * Math.sin(t * 1.7 + i) * body : 1 - body);
+  if (a <= .01) return;
+  const points = [];
+  for (let j = 0; j <= N; j++) {
+    const s = j / N;
+    const x = MS_CX + drift + (2 * s - 1) * (135 + 32 * open);
+    const y = Y + (14 + 13 * open) * Math.sin(s * 6.5 + t * 2.2 + rb.ph) + 7 * Math.sin(s * 13 - t * 3.1);
+    const L = loop[Math.round(s * loop.length) % loop.length];
+    const rip = lerp(1.3, aura ? 2.2 : 1.3, conv) * Math.sin(s * 22 + t * 4 + rb.ph);
+    points.push([lerp(x, L[0] + rip, m), lerp(y, L[1] + rip * .5, m)]);
+  }
+  const left = [], right = [], wide = aura ? 1 + .5 * conv : 1;
+  for (let j = 0; j <= N; j++) {
+    const p = points[Math.max(0, j - 1)], q = points[Math.min(N, j + 1)];
+    const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1;
+    const thickness = lerp(.35 + .65 * Math.sin(Math.PI * j / N), .7 + .5 * Math.sin(j / N * 9 + t * 2.4), seg(m, .4, .6));
+    const w = wide * rb.w * thickness * (1 + .35 * Math.sin(j * .5 + t * 3));
+    left.push([points[j][0] - dy / l * w / 2, points[j][1] + dx / l * w / 2]);
+    right.push([points[j][0] + dy / l * w / 2, points[j][1] - dx / l * w / 2]);
+  }
+  const center = MS_CX + drift * open, h = rb.hue + 30 * Math.sin(t * 1.3 + i);
+  const g = c.createLinearGradient(center - 120, 0, center + 120, 0);
+  g.addColorStop(0, hsla(h, 90, 62, 0)); g.addColorStop(.25, hsla(h + 20, 95, 64, .5 * a));
+  g.addColorStop(.55, hsla(h - 25, 90, 60, .6 * a)); g.addColorStop(.8, hsla(h + 95, 80, 70, .45 * a));
+  g.addColorStop(1, hsla(h, 90, 62, 0));
+  c.fillStyle = g; trace(c, left.concat(right.reverse())); c.fill();
+  const unfurl = seg(open, .62, .91);
+  if (m < .6 && unfurl < 1) {
+    const height = 30 + 21 * open;
+    c.save(); c.globalAlpha = (1 - m / .6) * a * .55 * (1 - unfurl);
+    trace(c, left.concat(left.map((p, j) => [p[0], p[1] - height * Math.sin(Math.PI * j / N)]).reverse()));
+    const cg = c.createLinearGradient(0, Y - height - 14, 0, Y + 8);
+    cg.addColorStop(0, hsla(h + 40, 90, 70, 0)); cg.addColorStop(1, hsla(h, 90, 65, .5));
+    c.fillStyle = cg; c.fill(); c.restore();
+  }
+  if (unfurl > 0) {
+    const x0 = points[0][0], x1 = points[N][0];
+    const fold = x => Math.sin(Math.PI * seg(x, x0, x1));
+    let j = 0;
+    const hem = x => {
+      while (j < N - 1 && points[j + 1][0] < x) j++;
+      const p = points[j], q = points[j + 1];
+      return lerp(p[1], q[1], seg(x, p[0], Math.max(p[0] + .01, q[0])));
+    };
+    curtain(c, Math.max(0, Math.ceil(x0 / 2) * 2), Math.min(MS_W, x1), hem,
+      x => (49 + 48 * fold(x)) * (.74 + .26 * Math.sin(x * .056 + t * 2.5)),
+      x => a * unfurl * .79 * fold(x) * (.53 + .47 * Math.sin(x * .052 - t * 2.8)) * (.77 + .23 * Math.sin(x * .92 + t * 5)), h);
+  }
+}
 // Quasar's flame holds a quasar of its own: a dark lane across it, a tilted
 // inner disk streaming round a white-hot core (brighter on its approaching
 // side), a thin jet on its axis and the core's diffraction spikes. ex washes
 // it all out white, for the moment it lands. Drawn at the standard size;
 // callers scale it with the canvas transform.
+const QUASAR_TILT = -.2;
 const coreDisk = r => Array.from({ length:120 }, (_, i) => ({ r0:5 + r() * 31, a0:r() * MS_TAU, sz:.5 + r() * 1.1, col:['150,175,255', '190,150,255', '225,232,255'][i % 3] }));
 function quasarBody(c, P, t, core, ex, k = 1) {
-  const x = MS_CX, y = MS_CY + 9, TILT = -.2, cs = Math.cos(TILT), sn = Math.sin(TILT);
+  const x = MS_CX, y = MS_CY + 9, cs = Math.cos(QUASAR_TILT), sn = Math.sin(QUASAR_TILT);
   c.save(); trace(c, P); c.shadowColor = 'rgba(140,160,255,.95)'; c.shadowBlur = 28 * k;
   const g = c.createRadialGradient(x, y, 0, MS_CX, MS_CY, 92);
   g.addColorStop(0, '#ffffff'); g.addColorStop(.2, '#eef1ff'); g.addColorStop(.55, '#aab5ff'); g.addColorStop(1, '#6c46ff');
   c.fillStyle = g; c.fill(); c.shadowBlur = 0; c.lineWidth = 1.2; c.strokeStyle = 'rgba(255,255,255,.95)'; c.stroke(); c.clip();
   // The dust lane: the disk's plane, darker where it crosses the flame.
-  c.save(); c.translate(x, y); c.rotate(TILT); c.scale(1, .26);
+  c.save(); c.translate(x, y); c.rotate(QUASAR_TILT); c.scale(1, .26);
   const lg = c.createRadialGradient(0, 0, 6, 0, 0, 50);
   lg.addColorStop(0, 'rgba(50,30,150,0)'); lg.addColorStop(.3, 'rgba(50,30,150,.5)'); lg.addColorStop(.7, 'rgba(60,40,170,.3)'); lg.addColorStop(1, 'rgba(60,40,170,0)');
   c.fillStyle = lg; c.beginPath(); c.arc(0, 0, 50, 0, MS_TAU); c.fill(); c.restore();
@@ -286,7 +536,7 @@ function quasarBody(c, P, t, core, ex, k = 1) {
   // The core: a soft halo, an overexposed point, its photon ring, spikes.
   const pu = 1 + .12 * Math.sin(t * 9);
   glow(c, x, y, 24 * pu, '190,205,255', .85); glow(c, x, y, 9 * pu, '255,255,255', 1);
-  c.save(); c.translate(x, y); c.rotate(TILT); c.beginPath(); c.ellipse(0, 0, 9.5, 2.7, 0, 0, MS_TAU); c.lineWidth = 1.1; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke();
+  c.save(); c.translate(x, y); c.rotate(QUASAR_TILT); c.beginPath(); c.ellipse(0, 0, 9.5, 2.7, 0, 0, MS_TAU); c.lineWidth = 1.1; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke();
   for (let q = 0; q < 4; q++) {
     const L = (q % 2 ? 16 : 26) * pu, sg = c.createLinearGradient(0, 0, L, 0);
     sg.addColorStop(0, 'rgba(255,255,255,.9)'); sg.addColorStop(1, 'rgba(200,210,255,0)');
@@ -296,6 +546,171 @@ function quasarBody(c, P, t, core, ex, k = 1) {
   ring(false);
   if (ex > 0) { c.globalCompositeOperation = 'source-over'; c.fillStyle = rgba('255,255,255', ex); c.fillRect(0, 0, MS_W, MS_H); }
   c.restore();
+}
+
+// Twin jets along the disk's axis, L long and wid wide at the core, knots of
+// light running out along them at flow px/s (negative: falling back in).
+function quasarJets(c, t, L, wid, { a = 1, knots = a, flow = 420 } = {}) {
+  if (wid <= .05 || L <= 1) return;
+  const cos = Math.cos(QUASAR_TILT), sin = Math.sin(QUASAR_TILT), O = [MS_CX, MS_CY + 5];
+  for (const dir of [-1, 1]) {
+    const nx = -sin * dir, ny = cos * dir, px = -ny, py = nx;
+    const g = c.createLinearGradient(O[0], O[1], O[0] + nx * L, O[1] + ny * L);
+    g.addColorStop(0, rgba('255,255,255', .95 * a)); g.addColorStop(.35, rgba('160,180,255', .65 * a)); g.addColorStop(1, 'rgba(130,90,255,0)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(O[0] + px * wid, O[1] + py * wid); c.lineTo(O[0] + nx * L, O[1] + ny * L); c.lineTo(O[0] - px * wid, O[1] - py * wid); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(O[0], O[1]); c.lineTo(O[0] + nx * L * .85, O[1] + ny * L * .85); c.lineWidth = Math.max(.5, wid * .3); c.strokeStyle = rgba('255,255,255', .9 * a); c.stroke();
+    for (let k = 0; k < 3; k++) { const d = ((t * flow + k * 85) % L + L) % L; glow(c, O[0] + nx * d, O[1] + ny * d, 6 * (1 - d / L) + 2, '220,230,255', .6 * (1 - d / L) * knots); }
+  }
+}
+
+function quasarDisk(c, t, disk, back, { wind = 0, escape = 0, alpha = 1 } = {}) {
+  const cos = Math.cos(QUASAR_TILT), sin = Math.sin(QUASAR_TILT);
+  const spin = 2.4 * t + 7 * Math.max(0, Math.min(t, 1.9) - .25) ** 2 + Math.max(0, t - 1.9) * 7 * 2 * 1.65 * .35 + 2.8 * wind;
+  const scat = seg(t, 1.78, 2.4), form = seg(t, .12, .7);
+  for (const p of disk) {
+    const a = p.a0 + spin * p.sp * Math.sqrt(34 / p.r0);
+    if ((Math.sin(a) < 0) !== back) continue;
+    const light = alpha * form * (p.keep ? 1 - .55 * seg(t, 2.2, 3.2) : 1 - scat) * (back ? .45 : .9);
+    if (light <= .01) continue;
+    const base = p.r0 * (1 - .22 * seg(t, .3, 1.5));
+    const r = p.keep ? lerp(base, 46 + p.r0 * .4, out3(scat)) : base * (1 + 2.2 * out3(scat));
+    const drift = seg(escape, .1 + .25 * (p.sp - .8) / .45, 1);
+    const kick = (32 + 1.45 * p.r0) * drift;
+    const pos = (angle, trail) => {
+      const radius = r * (1 - .4 * wind) + kick * (1 - .56 * trail);
+      const x = radius * Math.cos(angle), y = radius * Math.sin(angle) * (.27 + .39 * drift);
+      return [MS_CX + x * cos - y * sin, MS_CY + 5 + x * sin + y * cos];
+    };
+    const lead = .1 + .12 * seg(t, .4, 1.6) + .24 * wind + .68 * drift;
+    const points = drift ? [pos(a - lead, 1), pos(a - .47 * lead, .47), pos(a, 0)] : [pos(a - lead, 1), pos(a, 0)];
+    trace(c, points, false); c.lineWidth = p.sz; c.strokeStyle = rgba(p.r0 < 28 ? '235,240,255' : p.col, light * (1 - .65 * drift)); c.stroke();
+  }
+}
+
+const HOLE_Y = MS_CY + 9, HOLE_TILT = -.12, HOLE_FLAT = .2;
+const HOLE_COS = Math.cos(HOLE_TILT), HOLE_SIN = Math.sin(HOLE_TILT);
+function singularityPoint(r, a, flat = HOLE_FLAT) {
+  const u = r * Math.cos(a), v = r * Math.sin(a) * flat;
+  return [MS_CX + u * HOLE_COS - v * HOLE_SIN, HOLE_Y + u * HOLE_SIN + v * HOLE_COS];
+}
+
+function singularityVignette(c, opacity) {
+  if (opacity <= .002) return;
+  const g = c.createRadialGradient(MS_CX, HOLE_Y, 0, MS_CX, HOLE_Y, 178);
+  g.addColorStop(0, rgba('0,0,0', opacity)); g.addColorStop(.4, rgba('0,0,0', .8 * opacity));
+  g.addColorStop(.75, rgba('0,0,0', .3 * opacity)); g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g; c.fillRect(0, 0, MS_W, MS_H);
+}
+
+function singularityStars(c, t, stars, lens, alpha, { pull = 0, release = 0 } = {}) {
+  if (alpha <= .002) return;
+  const front = 195 * out3(release), wake = seg(release, 0, .12);
+  for (const s of stars) {
+    const loosen = seg(front - s.r, -19, 17) * wake;
+    const th = lens * (1 - loosen);
+    const ripple = wake ? Math.exp(-(((s.r - front) / 19) ** 2)) * (1 - release) * wake : 0;
+    const lensed = (s.r + Math.sqrt(s.r * s.r + 4 * th * th)) / 2, mag = lensed / s.r;
+    const rp = lensed + 15 * ripple;
+    const a = s.a + t * .03 + (pull * .32 * (1 - loosen) + .27 * ripple) * Math.sin(2 * s.a - t * 2.1);
+    const al = s.b * alpha * (1 - seg(rp, 120, 176)) * Math.min(1, .5 + (mag - 1) * .6 + ripple * .3);
+    if (al <= .01) continue;
+    const L = (s.sz + (mag - 1) * (7 + 4 * pull) + 22 * ripple) / rp;
+    c.beginPath(); c.arc(MS_CX, HOLE_Y, rp, a - L / 2, a + L / 2);
+    c.lineWidth = s.sz * Math.min(1.8, 1 + .25 * (mag - 1)); c.strokeStyle = rgba('235,240,255', al); c.stroke();
+    const reflection = lensed - s.r;
+    const image = pull * (1 - loosen) * seg(reflection, 13, 26);
+    if (image <= .01) continue;
+    c.beginPath(); c.arc(MS_CX, HOLE_Y, reflection, a + Math.PI - .11 * image, a + Math.PI + .11 * image);
+    c.lineWidth = .7 * s.sz; c.strokeStyle = rgba('235,240,255', .55 * al * image); c.stroke();
+  }
+}
+
+function singularityDisk(c, t, disk, back, form, { pull = 0, wind = 0, alpha = 1 } = {}) {
+  if (form * alpha <= .002) return;
+  const scale = 1 - .975 * pull;
+  c.save(); c.translate(MS_CX, HOLE_Y); c.rotate(HOLE_TILT); c.scale(scale, HOLE_FLAT * scale);
+  const g = c.createLinearGradient(-100, 0, 100, 0);
+  g.addColorStop(0, 'rgba(255,215,190,.14)'); g.addColorStop(.5, 'rgba(255,250,245,.42)'); g.addColorStop(1, 'rgba(225,235,255,.75)');
+  c.strokeStyle = g; c.globalAlpha = alpha * form * (back ? .5 : .8);
+  for (const [r, width] of [[54, 6], [66, 10], [82, 14], [96, 8]]) {
+    c.beginPath(); c.arc(0, 0, r, back ? Math.PI : 0, back ? MS_TAU : Math.PI); c.lineWidth = width; c.stroke();
+  }
+  c.restore();
+  for (const p of disk) {
+    const a = p.a0 + (t * 1.9 + wind * 5.5) * p.sp * Math.sqrt(60 / p.r0);
+    if ((Math.sin(a) < 0) !== back) continue;
+    const r = p.r0 * (1 + .5 * (1 - out3(form))), dop = (1 + Math.cos(a)) / 2;
+    const light = alpha * form * (back ? .55 : 1) * (.2 + .8 * dop * dop);
+    const trail = .2 + .25 * wind;
+    trace(c, [singularityPoint(r * scale + 8 * pull, a - trail),
+      singularityPoint(r * scale + 4 * pull, a - trail / 2), singularityPoint(r * scale, a)], false);
+    c.lineWidth = p.sz * (1 - .62 * pull);
+    c.strokeStyle = rgba(r * scale < 62 ? '255,255,255' : dop > .5 ? '232,240,255' : '255,234,214', light); c.stroke();
+  }
+}
+
+function singularityFall(c, t, particles, back, pull = 0, alpha = 1) {
+  if (alpha <= .002) return;
+  for (const p of particles) {
+    const u0 = 1.3 + p.d * .7, u = seg(t, u0, u0 + 1.1);
+    if (u <= 0 || (p.rf < 20 && u >= 1)) continue;
+    let front = false, heat = 0, edge = 1;
+    c.beginPath();
+    for (let j = 0; j < 5; j++) {
+      const tt = t - j * .018, uu = inOut(seg(tt, u0, u0 + 1.1)), r = lerp(p.r0, p.rf, uu) * (1 - .94 * pull);
+      const a = p.a0 + p.sp * (.9 * tt + 1.6 * p.r0 / (r + 12));
+      const q = singularityPoint(r, a, lerp(.9, HOLE_FLAT, uu));
+      if (!j) { front = Math.sin(a) > 0; heat = 1 - clamp01((r - p.rf) / 70); edge = 1 - seg(Math.hypot(q[0] - MS_CX, q[1] - HOLE_Y), 125, 168); }
+      j ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
+    }
+    if ((p.rf < 20 || !front) !== back) continue;
+    const al = alpha * edge * seg(u, 0, .15) * (p.rf < 20 ? 1 - seg(u, .85, 1) : 1 - .5 * seg(t, 2.7, 3.5));
+    c.lineWidth = p.sz; c.strokeStyle = rgba(whiten(p.col, heat * .85), al); c.stroke();
+  }
+}
+
+function singularityDrift(c, t, particles, pull = 0, alpha = 1) {
+  if (t <= 2.6 || alpha <= .002) return;
+  for (const d of particles) {
+    const al = alpha * .55 * seg(t, 2.6, 3.1), f0 = (t * .4 + d.ph) % 1;
+    if (f0 < .04) continue;
+    c.beginPath();
+    for (let j = 0; j < 4; j++) {
+      const ph = (t - j * .03) * .4 + d.ph, f = in3(ph % 1);
+      const q = singularityPoint(lerp(130, 40, f) * (1 - .97 * pull), d.a + Math.floor(ph) * 2.4 + (2.2 + 4 * pull) * f, lerp(.8, .3, ph % 1));
+      j ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
+    }
+    c.lineWidth = 1; c.strokeStyle = rgba('255,255,255', al * Math.sin(Math.PI * f0)); c.stroke();
+  }
+}
+
+// Light bent up around the silhouette and the dark horizon in front of it.
+function singularityHorizon(c, S, C, t, born, e, haloA) {
+  if (haloA > 0) {
+    let top = Infinity, bot = -Infinity;
+    for (const p of S) { top = Math.min(top, p[1]); bot = Math.max(bot, p[1]); }
+    top -= 22; bot += 22;
+    const pl = clamp01((HOLE_Y - top) / (bot - top)), g = c.createLinearGradient(0, top, 0, bot);
+    g.addColorStop(0, 'rgba(255,250,240,.7)'); g.addColorStop(.1, 'rgba(255,250,240,1)'); g.addColorStop(Math.max(.11, pl - .14), 'rgba(255,240,225,.8)');
+    g.addColorStop(pl, 'rgba(255,255,255,.18)'); g.addColorStop(Math.min(.99, pl + .12), 'rgba(235,240,255,.6)'); g.addColorStop(1, 'rgba(235,240,255,.2)');
+    c.strokeStyle = g;
+    c.save(); trace(c, S.map(p => outward(p, 4, C[0], C[1]))); c.shadowColor = 'rgba(255,248,235,.95)'; c.shadowBlur = 22; c.globalAlpha = .75 * haloA; c.lineWidth = 4; c.stroke(); c.restore();
+    for (const [d, w, al, dash, sp] of [[2.6, 1.4, 1, [], 0], [5.5, 2.6, .55, [], 0], [9.5, 3.6, .26, [], 0], [15, 6, .1, [], 0], [7.5, 1.4, .7, [3, 15, 1, 9], 70], [12, 1.2, .45, [2, 21], -40], [11, 5, .16, [], 0]]) {
+      trace(c, S.map(p => outward(p, d, C[0], C[1]))); c.globalAlpha = haloA * al * (1 + .1 * Math.sin(t * 2.1 + d));
+      c.lineWidth = w; c.setLineDash(dash); c.lineDashOffset = -t * sp; c.stroke();
+    }
+    c.setLineDash([]); c.globalAlpha = 1;
+  }
+  c.globalCompositeOperation = 'source-over';
+  trace(c, S); c.fillStyle = '#000'; c.fill();
+  if (e > 0) {
+    c.save(); c.clip();
+    for (let j = 0; j < 2; j++) glow(c, MS_CX + Math.sin(t * .7 + j * 3) * 14, MS_CY - 2 + Math.cos(t * .5 + j * 2) * 18, 26, '38,38,46', .55 * e);
+    c.restore();
+  }
+  c.globalCompositeOperation = 'lighter';
+  c.save(); c.shadowColor = 'rgba(255,255,255,.9)'; c.shadowBlur = 5; trace(c, S); c.lineWidth = 1.6; c.strokeStyle = rgba('255,255,255', born); c.stroke(); c.restore();
+  if (e > 0) { trace(c, S.map(p => outward(p, 2.2 + .6 * Math.sin(t * 3), C[0], C[1]))); c.lineWidth = .5; c.strokeStyle = rgba('255,255,255', .4 * e); c.stroke(); }
 }
 
 // ---------- the eight scenes ----------
@@ -308,12 +723,10 @@ const SCENES = {
     pal:{ edge:'150,22,32', body:'255,69,69', core:'255,160,130', glow:'255,69,69', blur:14 },
     init:r => ({ embers:[0, 1, 2].map(i => ({ x:(i - 1) * 8 + r() * 6 - 3, d:.5 + i * .13, ph:r() * MS_TAU, rise:55 + r() * 25 })) }),
     draw(c, t, st) {
-      const grow = seg(t, .1, .42), sc = grow < 1 ? Math.max(.02, outBack(grow)) : 1;
-      const after = Math.max(0, t - .42), flick = Math.exp(-after * 5) * Math.sin(after * 38) * .07;
       c.globalCompositeOperation = 'lighter';
       glow(c, MS_CX, MS_CY + 14, 4 + 12 * seg(t, 0, .12), '255,190,170', .95 * (1 - seg(t, .18, .5)));
       c.globalCompositeOperation = 'source-over';
-      if (t > .1) paintFire(c, { s:sc * (1 + flick), sy:1 - flick * .6, y:MS_CY + (1 - sc) * 14, t, wob:lerp(.7, .2, seg(t, .35, 1)), a:seg(t, .1, .2) * (1 - Math.max(0, flick) * 2.5) }, this.pal);
+      if (t > .1) paintFire(c, emberPose(t), this.pal);
       c.globalCompositeOperation = 'lighter';
       for (const e of st.embers) {
         const p = seg(t, e.d, e.d + .85);
@@ -331,10 +744,7 @@ const SCENES = {
     pal:{ edge:'200,72,10', body:'255,152,47', core:'255,205,100', glow:'255,140,40', blur:18 },
     init:r => ({ sparks:Array.from({ length:8 }, (_, i) => ({ a:-Math.PI / 2 + (i / 7 - .5) * 1.9 + (r() - .5) * .3, v:110 + r() * 70, bend:(r() - .5) * 2.4, d:r() * .09, life:.5 + r() * .25 })) }),
     draw(c, t, st) {
-      const surge = out3(seg(t, .28, .5)) * (1 - inOut(seg(t, .52, 1)));
-      const hot = seg(t, .55, .9), sc = t < .26 ? lerp(1, .76, inOut(seg(t, 0, .26))) : lerp(.76, 1, out3(seg(t, .26, .55)));
-      paintFire(c, { s:sc, y:MS_CY + (1 - sc) * 18, t, wob:.25 + surge * .9, curl:surge * 1.6, stretch:surge * .42, a:1,
-        core:hot ? '255,' + Math.round(205 + 40 * hot) + ',' + Math.round(100 + 80 * hot) : null }, mixPal(SCENES.red.pal, this.pal, seg(t, .08, .42)));
+      paintFire(c, flarePose(t), mixPal(SCENES.red.pal, this.pal, seg(t, .08, .42)));
       c.globalCompositeOperation = 'lighter';
       const f = seg(t, .48, .78);
       if (f > 0 && f < 1) {
@@ -365,47 +775,21 @@ const SCENES = {
       c.globalCompositeOperation = 'lighter';
       glow(c, MS_CX, MS_CY + 6, 10 + 36 * heat, '255,245,190', .9 * bell(t, .04, .8));
       glow(c, MS_CX, MS_CY, 90, '255,250,210', .6 * bell(t, .34, .85));
-      const R = 34 + out3(seg(t, .34, 1)) * 34, ca = seg(t, .34, .46) * (1 - seg(t, 1.3, 1.9));
-      if (ca > 0) {
-        const g = c.createRadialGradient(MS_CX, MS_CY, R * .72, MS_CX, MS_CY, R * 1.32);
-        g.addColorStop(0, rgba('255,220,80', 0)); g.addColorStop(.45, rgba('255,214,70', .32 * ca)); g.addColorStop(1, rgba('255,200,60', 0));
-        c.fillStyle = g; c.beginPath(); c.arc(MS_CX, MS_CY, R * 1.32, 0, MS_TAU); c.fill();
-        c.lineWidth = .8; c.strokeStyle = rgba('255,236,140', .5 * ca); c.beginPath();
-        st.rays.forEach(([len, ph], k) => {
-          const a = k / st.rays.length * MS_TAU + t * .18, L = R * (.05 + .16 * len * (.6 + .4 * Math.sin(t * 5 + ph)));
-          c.moveTo(MS_CX + Math.cos(a) * R * .97, MS_CY + Math.sin(a) * R * .97); c.lineTo(MS_CX + Math.cos(a) * (R + L), MS_CY + Math.sin(a) * (R + L));
-        });
-        c.stroke();
-        c.beginPath(); c.arc(MS_CX, MS_CY, R, 0, MS_TAU); c.lineWidth = 1.2; c.strokeStyle = rgba('255,244,190', .8 * ca); c.stroke();
-      }
+      solarCorona(c, t, 34 + out3(seg(t, .34, 1)) * 34, seg(t, .34, .46) * (1 - seg(t, 1.3, 1.9)), st.rays);
       const ig = seg(t, .36, .62);
       if (ig <= 0) return;
       c.globalCompositeOperation = 'source-over';
       const P = paintFire(c, { s:lerp(.92, 1, out3(ig)) * (1 + .05 * bell(t, .36, .9)), t, wob:.12, a:seg(t, .36, .44) }, this.pal);
       c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
-      const at = a => { let best = P[0], bd = 9; for (const q of P) { const qa = Math.atan2(q[1] - MS_CY, q[0] - MS_CX) - a, d = Math.abs(Math.atan2(Math.sin(qa), Math.cos(qa))); if (d < bd) { bd = d; best = q; } } return best; };
       for (const p of st.proms) {
         const g = bell(t, .6 + p.d, 1.65 + p.d);
         if (!g) continue;
-        // A loop of plasma: rooted at two footpoints, bulging out into an
-        // oval, a hot core inside a wide glow, two fainter strands beside it.
-        const A = at(p.a - p.w), B = at(p.a + p.w), H = p.h * 1.7 * out3(seg(t, .6 + p.d, 1.02 + p.d));
-        const loop = hk => { const a1 = outward(A, H * 1.33 * hk), b1 = outward(B, H * 1.33 * hk); c.beginPath(); c.moveTo(A[0], A[1]); c.bezierCurveTo(a1[0], a1[1], b1[0], b1[1], B[0], B[1]); return [a1, b1]; };
-        for (const hk of [.8, 1.14]) { loop(hk); c.lineWidth = .9; c.strokeStyle = rgba('255,226,120', .5 * g); c.stroke(); }
-        const [a1, b1] = loop(1);
-        c.lineWidth = 11 * g; c.strokeStyle = rgba('255,150,30', .16 * g); c.stroke();
-        c.lineWidth = 4 * g + .6; c.strokeStyle = rgba('255,206,70', .6 * g); c.stroke();
-        c.lineWidth = 1.5; c.strokeStyle = rgba('255,250,222', .95 * g); c.stroke();
-        const u = (t * .8 + p.ph) % 1, v = 1 - u, K = [0, 1].map(i => v * v * v * A[i] + 3 * v * v * u * a1[i] + 3 * v * u * u * b1[i] + u * u * u * B[i]);
-        glow(c, K[0], K[1], 6, '255,250,215', .9 * g);
-        glow(c, A[0], A[1], 8, '255,220,110', .5 * g); glow(c, B[0], B[1], 8, '255,220,110', .5 * g);
+        const A = flameFootpoint(P, p.a - p.w, MS_CX, MS_CY), B = flameFootpoint(P, p.a + p.w, MS_CX, MS_CY);
+        const H = p.h * 1.7 * out3(seg(t, .6 + p.d, 1.02 + p.d));
+        solarProminence(c, A, B, { height:H, alpha:g, u:(t * .8 + p.ph) % 1 });
       }
       climb(c, P, seg(t, 1.1, 1.55), '255,255,215', .7);
-      if (t > 1.2) {
-        c.save(); trace(c, P); c.clip();
-        for (let i = 0; i < 3; i++) glow(c, MS_CX + Math.sin(t * 1.7 + i * 2.1) * 16, MS_CY - 6 + Math.cos(t * 1.3 + i * 2) * 18, 22, '255,255,230', .16 * seg(t, 1.2, 1.6));
-        c.restore();
-      }
+      if (t > 1.2) solarShimmer(c, P, t, seg(t, 1.2, 1.6));
     } },
 
   // Plasma: Solar's flame under a gathering charge, streamers flickering off
@@ -424,7 +808,7 @@ const SCENES = {
         sky:1 + Math.floor(r() * 1e6) };
     },
     draw(c, t, st) {
-      const sh = msShape(), P = flamePts(sh.outer, { t, wob:.06 }), n = P.length, tip = P[0], tick = Math.floor(t / .045);
+      const sh = msShape(), P = flamePts(sh.outer, { t, wob:.06 }), tip = P[0], tick = Math.floor(t / .045);
       const top = tip[1] - 3, base = MS_CY + 6 * MS_S + 5, fr = inOut(seg(t, .5, 1)), yF = lerp(top, base, fr);
       const split = 2.4 * bell(t, .46, .72) + 2.2 * bell(t, .98, 1.22);
       // Solar's flame, still burning below the front, a little drained.
@@ -492,12 +876,7 @@ const SCENES = {
         for (const [dx, col] of [[-split, '255,60,210'], [split, '40,255,240']]) { c.save(); c.translate(dx, 0); trace(c, P); c.lineWidth = 1.2; c.strokeStyle = rgba(col, .45 * (1 - b)); c.stroke(); c.restore(); }
       }
       // Arcs leap round the outside, then keep crackling now and then.
-      for (const a of st.arcs) {
-        const lt = (t - a.at) / .13;
-        if (lt <= 0 || lt >= 1) continue;
-        const A = outward(P[a.i], 1), B = outward(P[(a.i + a.span) % n], 1);
-        drawBolt(c, bolt(A, B, seeded(a.seed + Math.floor(lt * 3)), .45, 3, -a.out), 1 - lt);
-      }
+      plasmaRim(c, P, t, st.arcs);
     } },
 
   // Nebula: Plasma's flame comes apart, its matter flung out as dust; dust
@@ -526,23 +905,13 @@ const SCENES = {
       const fadeIn = seg(t, .05, .6);
       for (const w of st.wisps) {
         const r = lerp(w.r0, w.rest, sw), a = w.a0 + w.sp * t * 1.3 + sw * 3.4;
-        c.beginPath(); c.ellipse(MS_CX, MS_CY, r, r * .62, 0, a - w.len * .45, a); c.lineCap = 'round';
-        c.lineWidth = w.wid; c.strokeStyle = rgba(w.col, .07 * fadeIn * late); c.stroke();
-        c.lineWidth = w.wid * .4; c.strokeStyle = rgba(w.col, .1 * fadeIn * late); c.stroke();
-        c.save(); c.translate(MS_CX + Math.cos(a) * r, MS_CY + Math.sin(a) * r * .62); c.rotate(a + Math.PI / 2); c.scale(1.9, 1);
-        glow(c, 0, 0, w.wid, w.col, .2 * fadeIn * late); c.restore();
+        nebulaWisp(c, w, r, a, fadeIn * late);
       }
       // The flame condenses: a dark violet body, slow clouds inside it.
       const f = seg(t, 1.3, 1.95), P = flamePts(msShape().outer, { t, wob:.05 });
       if (f > 0) {
         c.globalCompositeOperation = 'source-over';
-        c.save(); c.globalAlpha = f; trace(c, P);
-        const g = c.createRadialGradient(MS_CX, MS_CY + 10, 0, MS_CX, MS_CY, 80);
-        g.addColorStop(0, '#c9a2ff'); g.addColorStop(.4, '#7a4bdc'); g.addColorStop(1, '#2a1a6e');
-        c.fillStyle = g; c.fill(); c.clip(); c.globalCompositeOperation = 'lighter';
-        for (const [ph, sp] of st.blobs) glow(c, MS_CX + Math.cos(t * sp + ph) * 20, MS_CY - 4 + Math.sin(t * sp * 1.3 + ph) * 24, 26, ph > 3 ? '240,200,255' : '150,100,255', .22);
-        c.restore();
-        c.save(); trace(c, P); c.lineWidth = 1.2; c.strokeStyle = rgba('214,180,255', .85 * f); c.shadowColor = 'rgba(183,121,255,.9)'; c.shadowBlur = 12; c.stroke(); c.restore();
+        nebulaBody(c, P, t, st.blobs, f);
         c.globalCompositeOperation = 'lighter';
       }
       // Dust spirals in, then settles into the silhouette as its inner dust.
@@ -553,14 +922,10 @@ const SCENES = {
         const ex = out3(seg(t, 0, .45 + p.d * .5));   // flung out of the flame first
         if (ex < 1) { x = lerp(MS_CX + p.tgt[0] * MS_S, x, ex); y = lerp(MS_CY + p.tgt[1] * MS_S, y, ex); }
         const q = inOut(seg(t, 1.2 + p.d * .5, 1.8 + p.d * .5));
-        if (q > 0) { x = lerp(x, MS_CX + p.tgt[0] * MS_S + Math.sin(t * .9 + p.a0) * 1.5, q); y = lerp(y, MS_CY + p.tgt[1] * MS_S + Math.cos(t * .7 + p.a0) * 1.5, q); }
-        c.fillStyle = rgba(p.col, appear * (.55 + .35 * Math.sin(t * 3 + p.a0)));
-        c.fillRect(x - p.sz / 2, y - p.sz / 2, p.sz, p.sz);
+        if (q > 0) { const [px, py] = nebulaMote(p, t); x = lerp(x, px, q); y = lerp(y, py, q); }
+        nebulaDust(c, p, t, x, y, appear);
       }
-      for (const s of st.stars) {
-        const lt = t - s.at;
-        if (lt > 0) star(c, MS_CX + s.x, MS_CY + s.y, s.r * bell(lt % 1.7, 0, .5), .9 * bell(lt % 1.7, 0, .5));
-      }
+      for (const s of st.stars) nebulaStar(c, s, t);
     } },
 
   // Aurora: Nebula's flame dims as curtains of green and cyan light ripple
@@ -573,54 +938,22 @@ const SCENES = {
     ti:[[{ opacity:0, transform:'translateY(8px)', filter:'blur(3px)' }, { opacity:1, transform:'none', filter:'none' }], { duration:900, easing:'cubic-bezier(.25,.8,.25,1)' }],
     init:r => ({ rib:[1.06, .88, .7, .52, .34].map((k, i) => ({ k, ph:r() * MS_TAU, hue:[165, 140, 185, 275, 150][i], w:5 + r() * 3, d:i * .06 })) }),
     draw(c, t, st) {
-      const sh = msShape(), N = 56, n = sh.outer.length;
       if (t < 1.7) ghost(c, 'purple', t, { a:(1 - seg(t, .55, 1.65)), filter:'brightness(' + (1 - .45 * seg(t, .1, 1.2)).toFixed(2) + ')' });
       c.globalCompositeOperation = 'lighter';
       glow(c, MS_CX, MS_CY, 80, '90,255,220', .12 * seg(t, 0, .5));
       const conv = out3(seg(t, 1.6, 1.85)), body = seg(t, 1.62, 2.05);
       // The veil: a curtain shooting up from behind the flame as it lands, settling lower.
-      const vH = 150 * out3(seg(t, 1.64, 2.1)) * (1 - .42 * inOut(seg(t, 2.2, 3))), vI = seg(t, 1.64, 1.8) * (1.7 - .6 * seg(t, 2.2, 3)), X0 = MS_CX - 46, X1 = MS_CX + 46;
-      const P0 = vI > 0 && flamePts(sh.outer, { t, wob:.08 }), topAt = x => { let y = MS_CY - 14; for (const p of P0) if (Math.abs(p[0] - x) < 2.5 && p[1] < y) y = p[1]; return y + 3; };
-      if (vI > 0) curtain(c, X0, X1, x => topAt(x) + 3 * Math.sin(x * .05 + t * 1.7),
-        x => vH * (.45 + .55 * Math.sin(Math.PI * (x - X0) / (X1 - X0))) * (.7 + .3 * Math.sin(x * .04 + t * 1.3)),
-        x => vI * Math.sin(Math.PI * (x - X0) / (X1 - X0)) * (.6 + .4 * Math.sin(x * .07 - t * 2.4)) * (.88 + .12 * Math.sin(x * .8 + t * 5)), 150);
-      for (const [i, rb] of st.rib.entries()) {
-        // The outer two become the aura; the inner three melt into the flame.
-        const aura = i < 2, m = inOut(seg(t, .9 + rb.d, 1.62)), drop = out3(seg(t, .15 + rb.d, 1.15)), k = lerp(rb.k, aura ? [1.3, 1.15][i] : 1 - i * .1, conv);
-        const loop = flamePts(sh.outer, { s:k, t, wob:.1, y:MS_CY - (aura ? 6 * conv : 0) }), Y = lerp(-40 - i * 14, MS_CY - 36 + i * 11, drop);
-        const C = [];
-        for (let j = 0; j <= N; j++) {
-          const s = j / N, w = [MS_CX - 135 + 270 * s, Y + 14 * Math.sin(s * 6.5 + t * 2.2 + rb.ph) + 7 * Math.sin(s * 13 - t * 3.1)];
-          const L = loop[Math.round(s * n) % n], rip = lerp(1.3, aura ? 2.2 : 1.3, conv) * Math.sin(s * 22 + t * 4 + rb.ph);
-          C.push([lerp(w[0], L[0] + rip, m), lerp(w[1], L[1] + rip * .5, m)]);
-        }
-        // A strip of changing thickness round the centreline.
-        const left = [], right = [], wide = aura ? 1 + .5 * conv : 1;
-        for (let j = 0; j <= N; j++) {
-          const a = C[Math.max(0, j - 1)], b = C[Math.min(N, j + 1)], tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
-          const w = wide * rb.w * (m > .5 ? .7 + .5 * Math.sin(j / N * 9 + t * 2.4) : .35 + .65 * Math.sin(Math.PI * j / N)) * (1 + .35 * Math.sin(j * .5 + t * 3));
-          left.push([C[j][0] - ty / l * w / 2, C[j][1] + tx / l * w / 2]); right.push([C[j][0] + ty / l * w / 2, C[j][1] - tx / l * w / 2]);
-        }
-        const a = seg(t, .15 + rb.d, .6) * (aura ? 1 - .2 * body + .1 * Math.sin(t * 1.7 + i) * body : 1 - body), g = c.createLinearGradient(MS_CX - 120, 0, MS_CX + 120, 0), h = rb.hue + 30 * Math.sin(t * 1.3 + i);
-        if (a <= .01) continue;
-        g.addColorStop(0, hsla(h, 90, 62, 0)); g.addColorStop(.25, hsla(h + 20, 95, 64, .5 * a)); g.addColorStop(.55, hsla(h - 25, 90, 60, .6 * a));
-        g.addColorStop(.8, hsla(h + 95, 80, 70, .45 * a)); g.addColorStop(1, hsla(h, 90, 62, 0));
-        c.fillStyle = g; trace(c, left.concat(right.reverse())); c.fill();
-        // Curtain rays rising off the ribbon while it still hangs in the sky.
-        if (m < .6) {
-          c.save(); c.globalAlpha = (1 - m / .6) * a * .55; trace(c, left.concat(left.map((p, j) => [p[0], p[1] - 30 * Math.sin(Math.PI * j / N)]).reverse()));
-          const cg = c.createLinearGradient(0, Y - 44, 0, Y + 8); cg.addColorStop(0, hsla(h + 40, 90, 70, 0)); cg.addColorStop(1, hsla(h, 90, 65, .5));
-          c.fillStyle = cg; c.fill(); c.restore();
-        }
-      }
+      const vH = 150 * out3(seg(t, 1.64, 2.1)) * (1 - .42 * inOut(seg(t, 2.2, 3))), vI = seg(t, 1.64, 1.8) * (1.7 - .6 * seg(t, 2.2, 3));
+      const P = flamePts(msShape().outer, { t, wob:.08 });
+      auroraVeil(c, P, t, vH, vI);
+      for (const [i, rb] of st.rib.entries()) auroraRibbon(c, rb, i, t, conv, body);
       glow(c, MS_CX, MS_CY - 6, 160, '150,255,225', .5 * bell(t, 1.6, 2.2));
       if (body > 0) {
-        const P = flamePts(sh.outer, { t, wob:.08 });
         c.globalCompositeOperation = 'source-over';
         auroraBody(c, P, t, body);
         c.globalCompositeOperation = 'lighter';
         climb(c, P, seg(t, 1.85, 2.4), '220,255,250', .55, 26);
-        c.save(); trace(c, P); c.lineWidth = 1.2; c.strokeStyle = rgba('210,255,245', .85 * body); c.shadowColor = 'rgba(90,255,220,.95)'; c.shadowBlur = 12; c.stroke(); c.restore();
+        auroraRim(c, P, body);
       }
     } },
 
@@ -634,38 +967,13 @@ const SCENES = {
     ti:[[{ opacity:0, transform:'scale(1.16)', filter:'brightness(3)' }, { opacity:1, transform:'none', filter:'none' }], { duration:520, easing:'cubic-bezier(.15,.9,.25,1)' }],
     init:r => ({ disk:Array.from({ length:260 }, (_, i) => ({ r0:15 + r() * 62, a0:r() * MS_TAU, sp:.8 + r() * .45, sz:.6 + r() * 1.3, col:['120,150,255', '165,115,255', '225,232,255', '90,125,255'][i % 4], keep:i % 5 === 0 })), core:coreDisk(r) }),
     draw(c, t, st) {
-      const TILT = -.2, FLAT = .27, cos = Math.cos(TILT), sin = Math.sin(TILT), O = [MS_CX, MS_CY + 5];
+      const O = [MS_CX, MS_CY + 5];
       if (t < .36) ghost(c, 'aurora', t, { a:(1 - seg(t, .2, .34)), s:1 - .94 * in3(seg(t, .02, .32)), x:O[0], y:O[1], filter:'brightness(' + (1 + 3 * seg(t, .05, .3)).toFixed(2) + ')' });
-      const spin = 2.4 * t + 7 * Math.max(0, Math.min(t, 1.9) - .25) ** 2 + (t > 1.9 ? 7 * 2 * 1.65 * (t - 1.9) * .35 : 0);
-      const scat = seg(t, 1.78, 2.4), form = seg(t, .12, .7);
-      const pos = (p, a) => {
-        let r = p.r0 * (1 - .22 * seg(t, .3, 1.5));
-        if (!p.keep) r *= 1 + 2.2 * out3(scat); else r = lerp(r, 46 + p.r0 * .4, out3(scat));
-        const x = r * Math.cos(a), y = r * Math.sin(a) * FLAT;
-        return [O[0] + x * cos - y * sin, O[1] + x * sin + y * cos];
-      };
-      const disk = back => {
-        for (const p of st.disk) {
-          const a = p.a0 + spin * p.sp * Math.sqrt(34 / p.r0);
-          if ((Math.sin(a) < 0) !== back) continue;
-          const alpha = form * (p.keep ? 1 - .55 * seg(t, 2.2, 3.2) : 1 - scat) * (back ? .45 : .9);
-          if (alpha <= .01) continue;
-          const [x0, y0] = pos(p, a - .1 - .12 * seg(t, .4, 1.6)), [x1, y1] = pos(p, a);
-          c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.lineWidth = p.sz; c.strokeStyle = rgba(p.r0 < 28 ? '235,240,255' : p.col, alpha); c.stroke();
-        }
-      };
       c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
-      disk(true);
+      quasarDisk(c, t, st.disk, true);
       // Twin jets along the disk's axis.
-      const on = out3(seg(t, 1.02, 1.22)), off = seg(t, 1.9, 2.35), wid = 7 * on * (1 - off);
-      if (wid > .05) for (const dir of [-1, 1]) {
-        const nx = -sin * dir, ny = cos * dir, L = 40 + 250 * on, px = -ny, py = nx;
-        const g = c.createLinearGradient(O[0], O[1], O[0] + nx * L, O[1] + ny * L);
-        g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(.35, 'rgba(160,180,255,.65)'); g.addColorStop(1, 'rgba(130,90,255,0)');
-        c.fillStyle = g; c.beginPath(); c.moveTo(O[0] + px * wid, O[1] + py * wid); c.lineTo(O[0] + nx * L, O[1] + ny * L); c.lineTo(O[0] - px * wid, O[1] - py * wid); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(O[0], O[1]); c.lineTo(O[0] + nx * L * .85, O[1] + ny * L * .85); c.lineWidth = Math.max(.5, wid * .3); c.strokeStyle = 'rgba(255,255,255,.9)'; c.stroke();
-        for (let k = 0; k < 3; k++) { const d = (t * 420 + k * 85) % L; glow(c, O[0] + nx * d, O[1] + ny * d, 6 * (1 - d / L) + 2, '220,230,255', .6 * (1 - d / L) * (1 - off)); }
-      }
+      const on = out3(seg(t, 1.02, 1.22)), off = seg(t, 1.9, 2.35);
+      quasarJets(c, t, 40 + 250 * on, 7 * on * (1 - off), { knots:1 - off });
       glow(c, O[0], O[1], 8 + 34 * seg(t, .15, 1.35), '200,215,255', .9 * seg(t, 0, .12));
       glow(c, O[0], O[1], 3 + 3 * seg(t, .8, 1.3), '255,255,255', seg(t, 0, .08));
       glow(c, MS_CX, MS_CY, 150, '225,232,255', .5 * bell(t, 1.32, 1.78));
@@ -678,7 +986,7 @@ const SCENES = {
         c.restore();
       }
       c.globalCompositeOperation = 'lighter';
-      disk(false);
+      quasarDisk(c, t, st.disk, false);
       const pr = seg(t, 1.78, 2.15);
       if (pr > 0 && pr < 1) { c.beginPath(); c.arc(O[0], O[1], 20 + out3(pr) * 175, 0, MS_TAU); c.lineWidth = 2.2 * (1 - pr) + .4; c.strokeStyle = rgba('225,232,255', .9 * (1 - pr)); c.stroke(); }
     } },
@@ -705,27 +1013,16 @@ const SCENES = {
         drift:Array.from({ length:14 }, (_, i) => ({ a:r() * MS_TAU, ph:i / 14 })) };
     },
     draw(c, t, st) {
-      const sh = msShape(), n = sh.outer.length, O = [MS_CX, MS_CY + 9], TILT = -.12, FLAT = .2, cs = Math.cos(TILT), sn = Math.sin(TILT);
-      const at = (r, a, flat = FLAT) => { const u = r * Math.cos(a), v = r * Math.sin(a) * flat; return [O[0] + u * cs - v * sn, O[1] + u * sn + v * cs]; };
+      const sh = msShape(), n = sh.outer.length, O = [MS_CX, HOLE_Y];
       const k = in3(seg(t, .3, 1.1)), born = out3(seg(t, 1.14, 1.4)), e = inOut(seg(t, 1.95, 2.65)), R = 15;
       // The world dims round it.
       const vig = .3 * k + .42 * seg(t, 1.1, 1.7);
-      if (vig > 0) {
-        const g = c.createRadialGradient(O[0], O[1], 0, O[0], O[1], 178);
-        g.addColorStop(0, rgba('0,0,0', vig)); g.addColorStop(.4, rgba('0,0,0', .8 * vig)); g.addColorStop(.75, rgba('0,0,0', .3 * vig)); g.addColorStop(1, 'rgba(0,0,0,0)');
-        c.fillStyle = g; c.fillRect(0, 0, MS_W, MS_H);
-      }
+      singularityVignette(c, vig);
       c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
       // Starlight bent round the mass: each star's image pushed out from the
       // Einstein radius th and stretched along it into an arc.
       const th = 14 * k + 44 * out3(seg(t, 1.14, 1.65)) + 2 * Math.sin(t * 1.3) * seg(t, 1.7, 2.4), sf = seg(t, .15, .7);
-      if (sf > 0) for (const s of st.stars) {
-        const rp = (s.r + Math.sqrt(s.r * s.r + 4 * th * th)) / 2, mag = rp / s.r, a = s.a + t * .03;
-        const al = s.b * sf * (1 - seg(rp, 120, 176)) * Math.min(1, .5 + (mag - 1) * .6);
-        if (al <= .01) continue;
-        const L = (s.sz + (mag - 1) * 7) / rp;
-        c.beginPath(); c.arc(O[0], O[1], rp, a - L / 2, a + L / 2); c.lineWidth = s.sz * Math.min(1.8, 1 + .25 * (mag - 1)); c.strokeStyle = rgba('235,240,255', al); c.stroke();
-      }
+      singularityStars(c, t, st.stars, th, sf);
       // Phase 1: Quasar's flame winds in on itself, matter spiralling after it.
       if (t < 1.16) {
         for (const p of st.orbit) {
@@ -733,7 +1030,8 @@ const SCENES = {
           if (al <= 0) continue;
           c.beginPath();
           for (let j = 0; j < 6; j++) {
-            const tt = Math.max(0, t - j * .025), kk = in3(seg(tt, .3, 1.1)), q = at(p.r0 * (1 - .97 * kk), p.a0 + p.sp * (1.2 * tt + 2.2 * (1 / (1 - .92 * kk) - 1)), .27);
+            const tt = Math.max(0, t - j * .025), kk = in3(seg(tt, .3, 1.1));
+            const q = singularityPoint(p.r0 * (1 - .97 * kk), p.a0 + p.sp * (1.2 * tt + 2.2 * (1 / (1 - .92 * kk) - 1)), .27);
             j ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
           }
           c.lineWidth = 1.1; c.strokeStyle = rgba(whiten(p.col, k), al); c.stroke();
@@ -779,76 +1077,13 @@ const SCENES = {
         const p = S[i], a = Math.atan2(p[1] - O[1], p[0] - O[0]), d = born * (1 + (1 - e) * warp * (.14 * Math.sin(2 * a + t * 4) + .06 * Math.sin(3 * a - t * 6)));
         S[i] = [O[0] + (p[0] - O[0]) * d, O[1] + (p[1] - O[1]) * d];
       }
-      // Matter of every tier's colour pours in, whitening as it nears the edge;
-      // a third settles into the disk, the rest is swallowed.
-      const fall = back => {
-        for (const p of st.fall) {
-          const u0 = 1.3 + p.d * .7, u = seg(t, u0, u0 + 1.1);
-          if (u <= 0 || (p.rf < 20 && u >= 1)) continue;
-          let front = false, heat = 0, edge = 1;
-          c.beginPath();
-          for (let j = 0; j < 5; j++) {
-            const tt = t - j * .018, uu = inOut(seg(tt, u0, u0 + 1.1)), r = lerp(p.r0, p.rf, uu), a = p.a0 + p.sp * (.9 * tt + 1.6 * p.r0 / (r + 12)), q = at(r, a, lerp(.9, FLAT, uu));
-            if (!j) { front = Math.sin(a) > 0; heat = 1 - clamp01((r - p.rf) / 70); edge = 1 - seg(Math.hypot(q[0] - O[0], q[1] - O[1]), 125, 168); }
-            j ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
-          }
-          if ((p.rf < 20 || !front) !== back) continue;   // what is swallowed goes behind the hole
-          const al = edge * seg(u, 0, .15) * (p.rf < 20 ? 1 - seg(u, .85, 1) : 1 - .5 * seg(t, 2.7, 3.5));
-          c.lineWidth = p.sz; c.strokeStyle = rgba(whiten(p.col, heat * .85), al); c.stroke();
-        }
-      };
-      // The accretion disk: streaks on Kepler orbits, brighter and cooler on
-      // the side turning towards us, over a smooth glowing band.
+      // Matter from the lower tiers and the lensed disk pass behind the horizon first.
       const form = seg(t, 1.45, 2.4);
-      const disk = back => {
-        if (form <= 0) return;
-        c.save(); c.translate(O[0], O[1]); c.rotate(TILT); c.scale(1, FLAT);
-        const g = c.createLinearGradient(-100, 0, 100, 0);
-        g.addColorStop(0, 'rgba(255,215,190,.14)'); g.addColorStop(.5, 'rgba(255,250,245,.42)'); g.addColorStop(1, 'rgba(225,235,255,.75)');
-        c.strokeStyle = g; c.globalAlpha = form * (back ? .5 : .8);
-        for (const [rr, w] of [[54, 6], [66, 10], [82, 14], [96, 8]]) { c.beginPath(); c.arc(0, 0, rr, back ? Math.PI : 0, back ? MS_TAU : Math.PI); c.lineWidth = w; c.stroke(); }
-        c.restore();
-        for (const p of st.disk) {
-          const a = p.a0 + t * p.sp * 1.9 * Math.sqrt(60 / p.r0);
-          if ((Math.sin(a) < 0) !== back) continue;
-          const r = p.r0 * (1 + .5 * (1 - out3(form))), dop = (1 + Math.cos(a)) / 2, al = form * (back ? .55 : 1) * (.2 + .8 * dop * dop);
-          const A = at(r, a - .2), M = at(r, a - .1), B = at(r, a);
-          c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(M[0], M[1]); c.lineTo(B[0], B[1]);
-          c.lineWidth = p.sz; c.strokeStyle = rgba(r < 62 ? '255,255,255' : dop > .5 ? '232,240,255' : '255,234,214', al); c.stroke();
-        }
-      };
-      fall(true); disk(true);
-      // The far side of the disk, lensed up over the top of the hole and under
-      // it: bands of light hugging the silhouette, streaming round it.
-      const haloA = seg(t, 1.28, 1.8);
-      if (haloA > 0) {
-        let top = 1e9, bot = -1e9;
-        for (const p of S) { top = Math.min(top, p[1]); bot = Math.max(bot, p[1]); }
-        top -= 22; bot += 22;
-        const pl = clamp01((O[1] - top) / (bot - top)), g = c.createLinearGradient(0, top, 0, bot);
-        g.addColorStop(0, 'rgba(255,250,240,.7)'); g.addColorStop(.1, 'rgba(255,250,240,1)'); g.addColorStop(Math.max(.11, pl - .14), 'rgba(255,240,225,.8)');
-        g.addColorStop(pl, 'rgba(255,255,255,.18)'); g.addColorStop(Math.min(.99, pl + .12), 'rgba(235,240,255,.6)'); g.addColorStop(1, 'rgba(235,240,255,.2)');
-        c.strokeStyle = g;
-        c.save(); trace(c, S.map(p => outward(p, 4, C[0], C[1]))); c.shadowColor = 'rgba(255,248,235,.95)'; c.shadowBlur = 22; c.globalAlpha = .75 * haloA; c.lineWidth = 4; c.stroke(); c.restore();
-        for (const [d, w, al, dash, sp] of [[2.6, 1.4, 1, [], 0], [5.5, 2.6, .55, [], 0], [9.5, 3.6, .26, [], 0], [15, 6, .1, [], 0], [7.5, 1.4, .7, [3, 15, 1, 9], 70], [12, 1.2, .45, [2, 21], -40], [11, 5, .16, [], 0]]) {
-          trace(c, S.map(p => outward(p, d, C[0], C[1]))); c.globalAlpha = haloA * al * (1 + .1 * Math.sin(t * 2.1 + d));
-          c.lineWidth = w; c.setLineDash(dash); c.lineDashOffset = -t * sp; c.stroke();
-        }
-        c.setLineDash([]); c.globalAlpha = 1;
-      }
-      c.globalCompositeOperation = 'source-over';
-      trace(c, S); c.fillStyle = '#000'; c.fill();
-      // The interior: unnaturally dark, with faint charcoal distortion.
-      if (e > 0) {
-        c.save(); c.clip();
-        for (let j = 0; j < 2; j++) glow(c, MS_CX + Math.sin(t * .7 + j * 3) * 14, MS_CY - 2 + Math.cos(t * .5 + j * 2) * 18, 26, '38,38,46', .55 * e);
-        c.restore();
-      }
-      c.globalCompositeOperation = 'lighter';
-      // The photon ring: a hairline of brilliant white, a fainter one just outside.
-      c.save(); c.shadowColor = 'rgba(255,255,255,.9)'; c.shadowBlur = 5; trace(c, S); c.lineWidth = 1.6; c.strokeStyle = rgba('255,255,255', born); c.stroke(); c.restore();
-      if (e > 0) { trace(c, S.map(p => outward(p, 2.2 + .6 * Math.sin(t * 3), C[0], C[1]))); c.lineWidth = .5; c.strokeStyle = rgba('255,255,255', .4 * e); c.stroke(); }
-      disk(false); fall(false);
+      singularityFall(c, t, st.fall, true);
+      singularityDisk(c, t, st.disk, true, form);
+      singularityHorizon(c, S, C, t, born, e, seg(t, 1.28, 1.8));
+      singularityDisk(c, t, st.disk, false, form);
+      singularityFall(c, t, st.fall, false);
       // Arcs of light slide round the edge.
       for (const a of st.arcs) {
         const lt = seg(t, a.at, a.at + .55);
@@ -857,17 +1092,7 @@ const SCENES = {
         for (let j = 0; j < a.len; j++) pts.push(outward(S[(i0 + j) % n], a.off + 2 * Math.sin(j / a.len * Math.PI), C[0], C[1]));
         trace(c, pts, false); c.lineWidth = .9; c.strokeStyle = rgba('255,255,255', .9 * Math.sin(Math.PI * lt)); c.stroke();
       }
-      // Afterwards motes keep spiralling in.
-      if (t > 2.6) for (const d of st.drift) {
-        const al = .55 * seg(t, 2.6, 3.1), f0 = (t * .4 + d.ph) % 1;
-        if (f0 < .04) continue;   // the trail would wrap back to the start
-        c.beginPath();
-        for (let j = 0; j < 4; j++) {
-          const ph = (t - j * .03) * .4 + d.ph, f = ph % 1, q = at(lerp(130, 40, in3(f)), d.a + Math.floor(ph) * 2.4 + 2.2 * in3(f), lerp(.8, .3, f));
-          j ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
-        }
-        c.lineWidth = 1; c.strokeStyle = rgba('255,255,255', al * Math.sin(Math.PI * f0)); c.stroke();
-      }
+      singularityDrift(c, t, st.drift);
     } },
 };
 // Every reveal after Ember holds the settled flame of the tier below for
@@ -876,12 +1101,14 @@ const MS_LEAD = .2;
 Object.keys(SCENES).forEach((k, i, keys) => {
   if (!i) return;
   const sc = SCENES[k], draw = sc.draw, prev = keys[i - 1];
+  sc.lead = MS_LEAD;
   sc.ms += MS_LEAD * 1000; sc.at += MS_LEAD; sc.title += MS_LEAD;
   sc.draw = function (c, t, st) { if (t < MS_LEAD) ghost(c, prev, 0); else draw.call(this, c, t - MS_LEAD, st); };
 });
 
 function playMilestone(host, tier, opts = {}) {
   const scene = SCENES[tier] || SCENES.red, compact = !!opts.compact, ms = compact ? MS_COMPACT : scene.ms + MS_HOLD;
+  const endTime = milestoneEndTime(scene), fadeAt = (ms - MS_FADE) / 1000;
   const reduced = opts.reduced ?? !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const root = document.createElement('div');
   root.className = 'ms ms-' + tier + (compact ? ' ms-compact' : '');
@@ -890,33 +1117,33 @@ function playMilestone(host, tier, opts = {}) {
     String(opts.who || '').replace(/[&<>"']/g, '') + (opts.achieved > 0 ? ' | ' + opts.achieved + ' Achieved' : '') + '</small><i class="ms-line"></i></div>';
   host.replaceChildren(root);
   const canvas = root.firstChild, title = root.querySelector('.ms-title'), dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = MS_W * dpr; canvas.height = MS_H * dpr;
-  const c = canvas.getContext('2d'), st = scene.init ? scene.init(seeded(7 + tier.length * 131)) : {};
+  canvas.width = Math.round(MS_W * dpr); canvas.height = Math.round(MS_H * dpr);
+  const c = canvas.getContext('2d'), st = c && initMilestoneScene(tier, scene);
   const anims = [];
-  const draw = t => { c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, MS_W, MS_H); scene.draw(c, t, st); };
+  const draw = t => { if (c) renderScene(c, dpr, scene, t, st); };
   const showTitle = () => {
     if (reduced) { anims.push(title.animate([{ opacity:0 }, { opacity:1 }], { duration:300, fill:'forwards' })); return; }
     anims.push(title.animate(scene.ti[0], { ...scene.ti[1], fill:'forwards' }));
     if (scene.tb) anims.push(title.firstChild.animate(scene.tb[0], { ...scene.tb[1], fill:'forwards' }));
     if (tier === 'singularity') anims.push(title.lastChild.animate([{ transform:'scaleX(0)', opacity:0 }, { transform:'scaleX(1)', opacity:.8 }], { duration:900, delay:250, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards' }));
   };
-  let raf = 0, t0 = 0, titled = false, faded = false, stopped = false;
+  let raf = 0, t0 = null, titled = false, faded = false, stopped = false;
   const fade = () => { faded = true; anims.push(root.animate([{ opacity:1 }, { opacity:0 }], { duration:MS_FADE, easing:'ease-in', fill:'forwards' })); };
   function stop() { stopped = true; cancelAnimationFrame(raf); for (const a of anims) a.cancel(); root.remove(); }
   function frame(now) {
     if (stopped || !root.isConnected) return stop();
-    t0 ||= now;
+    t0 ??= now;
     const t = (now - t0) / 1000;
-    draw(compact ? scene.ms / 1000 + t : t);
+    if (!faded) draw(t >= fadeAt ? endTime : compact ? lerp(scene.ms / 1000, endTime, t / fadeAt) : t);
     if (!titled && t >= scene.title) { titled = true; showTitle(); }
-    if (!faded && t * 1000 >= ms - MS_FADE) fade();
+    if (!faded && t >= fadeAt) fade();
     if (t * 1000 < ms) raf = requestAnimationFrame(frame);
   }
   if (compact) {
     titled = true; title.style.opacity = 1;
     if (!reduced) anims.push(root.animate([{ opacity:0, transform:'translateY(-60px)' }, { opacity:1, transform:'none' }], { duration:450, easing:'cubic-bezier(.2,.8,.3,1)' }));
   }
-  if (reduced) { draw(scene.ms / 1000); if (!compact) showTitle(); setTimeout(() => { if (!stopped) fade(); }, ms - MS_FADE); }
+  if (reduced) { draw(endTime); if (!compact) showTitle(); setTimeout(() => { if (!stopped) fade(); }, ms - MS_FADE); }
   else raf = requestAnimationFrame(frame);
   return { ms, at:reduced || compact ? 0 : scene.at, stop };
 }

@@ -295,7 +295,11 @@ function renderCareer(history, selfId, s) {
 // ---------- Shortcut capture ----------
 window.addEventListener('blur', cancelCapture);
 // Num 0 on the Settings page toggles the hidden test-popup menu.
-for (const b of document.querySelectorAll('[data-test]')) b.onclick = () => window.api.command('test:' + b.dataset.test);
+const expiryTier = $('testExpiryTier'), overtakeTier = $('testOvertakeTier');
+for (const select of [expiryTier, overtakeTier]) select.replaceChildren(...TIER_ORDER.map(t => new Option(TIER_LABEL[t], t)));
+const testTier = { expired:expiryTier, overtaken:overtakeTier, overtake:overtakeTier };
+for (const b of document.querySelectorAll('[data-test]')) b.onclick = () =>
+  window.api.command('test:' + b.dataset.test + (testTier[b.dataset.test] ? ':' + testTier[b.dataset.test].value : ''));
 document.addEventListener('keydown', e => {
   if (!capturing && e.code === 'Numpad0' && !$('settings').hidden && !e.target.closest('input')) { $('testMenu').hidden = !$('testMenu').hidden; return; }
   if (!capturing) return;

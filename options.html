@@ -40,9 +40,6 @@
     <h2>Test popups</h2>
     <p class="lede">Plays the animation only; nothing is counted. Num 0 hides this.</p>
     <div class="group"><div class="row" id="testButtons" style="flex-wrap:wrap;gap:8px;justify-content:flex-start">
-      <button class="ghost" data-test="overtaken">Someone overtakes you</button>
-      <button class="ghost" data-test="overtake">You overtake someone</button>
-      <button class="ghost" data-test="expired">Your streak runs out</button>
       <button class="ghost" data-test="red">Ember · 3</button>
       <button class="ghost" data-test="orange">Flare · 10</button>
       <button class="ghost" data-test="yellow">Solar · 20</button>
@@ -54,7 +51,13 @@
       <button class="ghost" data-test="best">Personal best</button>
       <button class="ghost" data-test="record">Leaderboard record</button>
       <button class="ghost" data-test="recap">Last match recap</button>
-    </div></div>
+    </div>
+    <div class="row"><label for="testExpiryTier">Streak loss</label><span class="inline">
+      <select id="testExpiryTier"></select><button class="ghost" data-test="expired">Play</button>
+    </span></div>
+    <div class="row"><label for="testOvertakeTier">Overtake<small>Your tier when the lead changes hands.</small></label><span class="inline">
+      <select id="testOvertakeTier"></select><button class="ghost" data-test="overtaken">You're passed</button><button class="ghost" data-test="overtake">You pass</button>
+    </span></div></div>
   </div>
   <h2>MiniHUD</h2>
   <div class="group">
@@ -69,7 +72,7 @@
   <h2>Popups &amp; sound</h2>
   <div class="group">
     <label class="row"><span>Match recap<small>Steps through total, chest share, streaks and timeline under the MiniHUD, then hides. Honors reduced motion.</small></span><input type="checkbox" class="switch" id="recaps"></label>
-    <label class="row"><span>Streak popups<small>When the streak lead changes hands, and when your streak or the leader’s reaches a new flame colour.</small></span><input type="checkbox" class="switch" id="streakPopups"></label>
+    <label class="row"><span>Streak popups<small>Rank-ups, changes in the streak lead, and when your streak ends.</small></span><input type="checkbox" class="switch" id="streakPopups"></label>
     <label class="row"><span>Personal best<small>A gold pill the moment you pass your best counted game.</small></span><input type="checkbox" class="switch" id="bestPopups"></label>
     <div class="row"><label for="sound">Chest click sound<small>Plays when a count changes, including global shortcuts.</small></label><span class="inline"><button id="testSound" class="ghost">Test</button><input type="checkbox" class="switch" id="sound"></span></div>
   </div>

@@ -1,6 +1,7 @@
-// Overlay popups (match recap, streak taken, personal best) styled like the MiniHUD.
-// A recap shows one category per stage, then dismisses itself. Pills show
-// only the feat: who has the streak now, or the new best.
+// Overlay popups (match recap, streak scenes, personal best) styled like the MiniHUD.
+// A recap shows one category per stage, then dismisses itself. Streak rank-ups,
+// losses and lead changes are free-floating flame scenes; a personal best is a
+// pill showing only the feat.
 const STAGE_MS = 5500, PILL_MS = 4200, STALE_MS = 15000, PILL_PAD = 28;
 const $ = id => document.getElementById(id);
 // Outside Electron (milestones-preview.html embeds this page) there is no
@@ -22,7 +23,8 @@ function fit() {
   // padding); the rare colours' scenes get much more.
   const pad = document.body.classList.contains('pill-body') ? stages[0]?.pad || PILL_PAD : 0;
   document.body.style.setProperty('--pad', pad + 'px');
-  window.api.popupResize({ w:panel.offsetWidth + pad * 2, h:panel.offsetHeight + pad * 2, pad:stages[0]?.reveal ? (stages[0].reveal.compact ? 0 : REVEAL_PAD) : pad, kind:current?.kind || 'recap' });
+  const scenePad = stages[0]?.death || stages[0]?.reveal || stages[0]?.overtake ? (stages[0].reveal?.compact ? 0 : REVEAL_PAD) : pad;
+  window.api.popupResize({ w:panel.offsetWidth + pad * 2, h:panel.offsetHeight + pad * 2, pad:scenePad, kind:current?.kind || 'recap' });
 }
 function applyOpacity(opacity) {
   const a = Math.max(0, Math.min(100, Number.isFinite(opacity) ? opacity : 88)) / 100;
@@ -46,37 +48,27 @@ function sparks(hype, reach = 16 + hype * 4) {
   return html;
 }
 
-// A flame wrapped in its tier's class, so tiers.css paints it (rare tiers
-// have their own body, ring and cracks). Tier changes stack two: the old
-// one ('was') hands over to the new one ('now') in popup.html.
-const flame = (tier, cls = '') => '<span class="fl ' + cls + ' tier-' + tier + '">' + RECAP_FIRE + '</span>';
-const chip = (n, tier, cls = '') => '<span class="chip ' + cls + (tier ? ' tier-' + tier : '') + '">' + tierNumber(n) + '</span>';
-
-// Streak taken: the holder's name and run are struck through while the flame
-// cools, then the reel rolls up to the new holder and it relights.
-function brokenStage(item) {
-  const owner = item.mine ? 'You' : esc(item.owner), taker = item.byMe ? 'You' : esc(item.breaker);
-  const from = streakTier(item.n || 0), to = streakTier(item.newN || 0);
-  const count = n => n > 0 ? '<span class="count">' + chip(n) + '</span>' : '';
-  return { key:'broken', label:'', html:'<div class="taken" style="' + tierVars('from', from) + ';' + tierVars('to', to) + '" aria-label="' + taker + ' took the lead from ' + owner + '">' +
-    '<span class="flame">' + flame(from, 'was') + flame(to, 'now') + '</span><span class="slot"><span class="reel">' +
-    '<span class="line old tier-' + from + '"><span class="struck"><span class="name">' + owner + '</span>' + count(item.n) + '</span></span>' +
-    '<span class="line new tier-' + to + (item.byMe ? ' me' : '') + '"><span class="name">' + taker + '</span>' + count(item.newN) + '</span>' +
-    '</span></span>' + dropBadge(item) + '</div>' };
-}
-// ponytail: placeholder drop animation for the passed holder's fall to the
-// tier below; replace with a proper one later.
-function dropBadge(item) {
-  if (!Number.isFinite(item.dropTo) || item.dropTo >= (item.n || 0)) return '';
-  return '<span class="drop tier-' + streakTier(item.dropTo) + '">' + (item.mine ? 'You' : esc(item.owner)) + ' ↓ ' + (item.dropTo ? tierNumber(item.dropTo) : '0') + '</span>';
+// The streak lead changing hands: two flames fighting for the middle
+// (streak-overtakes.js). Losing your own lead plays the defeat, from your
+// side; any other new lead plays the new leader's victory. The passed
+// leader's count after the drop (dropTo) is the one the scene ends on.
+function overtakeStage(item) {
+  const owner = item.mine ? 'You' : String(item.owner || 'Someone'), taker = item.byMe ? 'You' : String(item.breaker || 'Someone');
+  const n = item.n || 0, newN = item.newN || 0, drop = Number.isFinite(item.dropTo) ? item.dropTo : droppedStreak(n);
+  const overtake = item.mine && !item.lossAlreadyShown
+    ? { dir:'defeat', hero:{ name:owner, from:n, to:drop }, rival:{ name:taker, from:newN, to:newN } }
+    : { dir:'victory', hero:{ name:taker, from:Math.max(0, newN - 1), to:newN }, rival:{ name:owner, from:n, to:drop } };
+  return { key:'overtake', label:'', overtake, html:'<div class="reveal"></div>' };
 }
 
-// Your streak ran out: a round pill whose flame gutters, shrinks to a glowing
-// ember at its base, and the ember fades out.
-function lostStage(item) {
-  const tier = TIER_ORDER.includes(item.tier) ? item.tier : 'red';
-  return { key:'lost', label:'', ms:2900, html:'<div class="lost" style="' + tierVars('from', tier) + '" aria-label="Your streak of ' + item.n + ' ran out">' +
-    '<span class="flame">' + flame(tier) + '<i class="ember"></i></span></div>' };
+// A full loss uses the same free-floating stage as a rank-up. If the lead
+// changes hands with the loss, carry the new leader in the caption.
+function deathStage(item) {
+  const tier = TIER_ORDER.includes(item.tier) ? item.tier : streakTier(item.n);
+  const handoff = item.kind === 'streakBroken'
+    ? (item.byMe ? 'You take' : (item.breaker || 'Someone') + ' takes') + ' the lead · ' + item.newN
+    : '';
+  return { key:'lost', label:'', death:{ tier, n:item.n, owner:item.mine ? null : item.owner, handoff }, html:'<div class="reveal"></div>' };
 }
 
 // New flame colour: a free-floating milestone reveal (milestones.js), no
@@ -91,8 +83,8 @@ function tierStage(item) {
     at:compact ? 0 : SCENES[tier].at, ms:compact ? MS_COMPACT : SCENES[tier].ms + MS_HOLD,
     html:'<div class="reveal" aria-label="' + esc(who) + ' reached ' + TIER_LABEL[tier] + ', a ' + TIER_MIN[tier] + ' streak"></div>' };
 }
-let revealRun = null;
-const stopReveal = () => { revealRun?.stop(); revealRun = null; };
+let sceneRun = null;
+const stopScene = () => { sceneRun?.stop(); sceneRun = null; };
 
 // Personal best: a gold trophy and the new count. A leaderboard record is the
 // same trophy at full hype.
@@ -191,7 +183,7 @@ const easeInOut = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
 function stopReplay() { if (playing) cancelAnimationFrame(playing.raf); playing = null; }
 
 function show(item) {
-  clearTimeout(timer); stopReplay(); stopReveal();
+  clearTimeout(timer); stopReplay(); stopScene();
   current = item; index = 0;
   applyOpacity(item.opacity);
   if (item.kind === 'recap') {
@@ -206,19 +198,19 @@ function show(item) {
   } else if (item.kind === 'personalBest') {
     stages = [bestStage(item)];
     if (item.sound !== false) hypeSound(stages[0].hype);
-  } else if (item.kind === 'streakLost') {
-    stages = [lostStage(item)];     // the HUD plays the lost-streak sound
+  } else if (item.kind === 'streakLost' || (item.kind === 'streakBroken' && !item.lossAlreadyShown && item.dropTo === 0 && item.n >= MIN_STREAK && !(item.newN > item.n))) {
+    stages = [deathStage(item)];     // the leader's streak ran out; the HUD plays the sound for your own
   } else {
-    stages = [brokenStage(item)];
+    stages = [overtakeStage(item)];  // passed: the lead changes hands
   }
-  const reveal = !!stages[0].reveal, pill = item.kind !== 'recap' && !reveal, hype = pill ? stages[0].hype || 0 : 0;
+  const { reveal, death, overtake } = stages[0];
+  const pill = item.kind !== 'recap' && !reveal && !death && !overtake, hype = pill ? stages[0].hype || 0 : 0;
   document.body.classList.toggle('pill-body', pill);
-  panel.classList.toggle('reveal-kind', reveal);
-  panel.classList.toggle('compact', reveal && !!stages[0].reveal.compact);
+  panel.classList.toggle('reveal-kind', !!(reveal || death || overtake));
+  panel.classList.toggle('death-kind', !!(death || overtake));   // scenes that fade themselves out
+  panel.classList.toggle('compact', !!reveal?.compact);
   panel.classList.toggle('pill-kind', pill);
-  panel.classList.toggle('round-kind', item.kind === 'streakLost');
   panel.classList.toggle('best-kind', item.kind === 'personalBest');
-  panel.classList.toggle('mine', pill && !!item.mine);
   // Rarer moments glow, shake and flash (popup.html, data-hype).
   panel.classList.toggle('hype-big', hype >= 3);
   panel.classList.toggle('hype-huge', hype >= 5);
@@ -236,7 +228,7 @@ function show(item) {
   $('steps').innerHTML = stages.map((s, i) => '<button aria-label="Show ' + esc(s.label || 'popup') + '" data-i="' + i + '"><i></i></button>').join('');
   for (const b of $('steps').children) b.onclick = e => { e.stopPropagation(); go(Number(b.dataset.i)); };
   panel.classList.add('in');
-  if (reveal) revealRun = playMilestone($('stages').querySelector('.reveal'), stages[0].reveal.tier, stages[0].reveal);
+  if (reveal) sceneRun = playMilestone($('stages').querySelector('.reveal'), reveal.tier, reveal);
   go(0);
   fit();
 }
@@ -251,6 +243,15 @@ function go(i) {
     steps[k].classList.toggle('done', k < i);
     steps[k].classList.remove('now');
   }
+  if (stages[i].death) {
+    const { tier, ...options } = stages[i].death;
+    sceneRun = playStreakDeath(nodes[i].firstElementChild, tier, { ...options, onEnd:next });
+    return;
+  }
+  if (stages[i].overtake) {
+    sceneRun = playOvertake(nodes[i].firstElementChild, { ...stages[i].overtake, onEnd:next });
+    return;
+  }
   const length = stageLength(i);
   document.documentElement.style.setProperty('--stage', length + 'ms');
   void steps[i].offsetWidth; // restart the progress animation
@@ -264,7 +265,7 @@ function go(i) {
 }
 function run() {
   clearTimeout(timer);
-  if (hovering) return;
+  if (hovering || stages[index]?.death || stages[index]?.overtake) return;
   startedAt = Date.now();
   timer = setTimeout(next, remaining);
 }
@@ -274,6 +275,7 @@ function next() {
 }
 function finish() {
   clearTimeout(timer); stopReplay();
+  if (stages[index]?.death || stages[index]?.overtake) stopScene();
   if (current?.kind === 'recap') window.api.recapDone?.();
   panel.classList.remove('in'); panel.classList.add('out');
   current = null;
@@ -281,7 +283,7 @@ function finish() {
     if (current) return;
     while (queue.length && Date.now() - queue[0].at > STALE_MS) queue.shift();
     if (queue.length) show(queue.shift());
-    else { stopReveal(); window.api.closePopup(); }
+    else { stopScene(); window.api.closePopup(); }
   }, 280);
 }
 

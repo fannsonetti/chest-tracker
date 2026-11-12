@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Milestone Preview</title>
-<!-- Developer preview of the eight flame milestone reveals and the small looping
+<title>Streak Animation Preview</title>
+<!-- Developer preview of flame milestone reveals, streak deaths, overtakes, and small looping
      icons. Open this file in a browser (or Electron); nothing here touches real
      streaks or stats. Not packaged with the app. -->
 <link rel="stylesheet" href="tiers.css">
@@ -36,7 +36,14 @@
 </style></head>
 <body>
 <header>
-  <h1>Milestone preview</h1>
+  <h1>Streak animation preview</h1>
+  <div id="mode" role="group" aria-label="Animation">
+    <button data-mode="rank" aria-pressed="true">Rank-up</button>
+    <button data-mode="death" aria-pressed="false">Streak loss</button>
+    <button data-mode="defeat" aria-pressed="false">Overtaken</button>
+    <button data-mode="victory" aria-pressed="false">Overtake</button>
+  </div>
+  <label>Rival <select id="rival"><option value="">Same tier</option></select></label>
   <span id="tiers"></span>
   <button id="replay">Replay</button>
   <button id="all">Play all</button>
@@ -46,24 +53,34 @@
   <span id="timing"></span>
 </header>
 <div class="scene"><div id="stage"></div><div class="mock"><b>Match 4</b> · 12:41<br>SQUAD &nbsp; GAME &nbsp; STREAK</div></div>
-<div class="row" id="drops"><b style="align-self:center;margin-right:8px">Overtaken drops</b>
+<div class="row" id="drops"><b style="align-self:center;margin-right:8px">Overtakes in the popup</b>
   <label><input type="radio" name="side" value="mine" checked> You're passed</label>
   <label><input type="radio" name="side" value="other"> Someone else is passed</label>
   <label><input type="radio" name="side" value="byMe"> You pass them</label>
   <button id="allDrops">Play all</button>
 </div>
-<div class="scene" style="min-height:200px"><iframe id="popup" src="popup.html" style="width:560px;max-width:100%;height:200px;border:0;background:transparent;color-scheme:light" allowtransparency="true"></iframe></div>
+<div class="scene" style="min-height:380px"><iframe id="popup" src="popup.html" style="width:380px;max-width:100%;height:380px;border:0;background:transparent;color-scheme:light" allowtransparency="true"></iframe></div>
 <div class="icons" id="icons"></div>
 <script src="match.js"></script>
 <script src="milestones.js"></script>
+<script src="streak-deaths.js"></script>
+<script src="streak-overtakes.js"></script>
 <script>
   const $ = id => document.getElementById(id);
-  let tier = 'red', run = null, timer = 0, queue = [];
+  let tier = 'red', mode = 'rank', run = null, timer = 0, queue = [];
   function play(t) {
     tier = t; clearTimeout(timer); run?.stop();
     for (const b of $('tiers').children) b.setAttribute('aria-pressed', b.dataset.tier === t);
-    run = playMilestone($('stage'), t, { who:'You', reduced:$('reduce').checked });
-    $('timing').textContent = TIER_LABEL[t] + ': reveal ' + SCENES[t].ms + 'ms, total ' + run.ms + 'ms';
+    const reduced = $('reduce').checked || matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const death = mode === 'death', n = TIER_MIN[t] + 2, rt = $('rival').value, rn = rt && TIER_MIN[rt] + 2;
+    // Overtakes: you hold n and are passed, or pass a rival holding n. The
+    // rival's tier defaults to yours; the passed side drops a tier.
+    if (mode === 'defeat') run = playOvertake($('stage'), { dir:'defeat', hero:{ name:'You', from:n, to:droppedStreak(n) }, rival:{ name:'Raider', from:rn || n + 1, to:rn || n + 1 }, reduced });
+    else if (mode === 'victory') run = playOvertake($('stage'), { dir:'victory', hero:{ name:'You', from:n, to:n + 1 }, rival:{ name:'Raider', from:rn || n, to:droppedStreak(rn || n) }, reduced });
+    else run = death ? playStreakDeath($('stage'), t, { n:TIER_MIN[t], reduced }) : playMilestone($('stage'), t, { who:'You', reduced });
+    $('timing').textContent = TIER_LABEL[t] + (mode === 'rank'
+      ? ' · ' + SCENES[t].ms + 'ms reveal · ' + run.ms + 'ms total'
+      : ' · ' + (run.ms / 1000).toFixed(2) + 's');
     timer = setTimeout(() => {
       if (queue.length) play(queue.shift());
       else if ($('loop').checked) play(tier);
@@ -72,14 +89,22 @@
   $('tiers').innerHTML = TIER_ORDER.map(t => '<button data-tier="' + t + '">' + TIER_LABEL[t] + ' · ' + TIER_MIN[t] + '</button>').join(' ');
   for (const b of $('tiers').children) b.onclick = () => { queue = []; play(b.dataset.tier); };
   $('replay').onclick = () => { queue = []; play(tier); };
+  for (const b of $('mode').children) b.onclick = () => {
+    mode = b.dataset.mode;
+    for (const button of $('mode').children) button.setAttribute('aria-pressed', button === b);
+    $('replay').onclick();
+  };
+  $('reduce').onchange = $('replay').onclick;
+  $('rival').append(...TIER_ORDER.map(t => new Option(TIER_LABEL[t] + ' · ' + (TIER_MIN[t] + 2), t)));
+  $('rival').onchange = $('replay').onclick;
   $('all').onclick = () => { queue = TIER_ORDER.slice(1); play(TIER_ORDER[0]); };
   $('backdrop').onchange = e => { document.body.className = e.target.value; };
   // The small looping icons at HUD size and larger, as the app shows them.
   $('icons').innerHTML = TIER_ORDER.map(t => '<div><span class="streak flicker tier-' + t + '">' + RECAP_FIRE + tierNumber(TIER_MIN[t]) + '</span>' +
     '<span class="big tier-' + t + '">' + RECAP_FIRE + '</span>' + TIER_LABEL[t] + '</div>').join('');
   play('red');
-  // Overtaken drops: the real takeover popup (popup.html) for a leader passed
-  // at each tier, falling to the start of the tier below (droppedStreak).
+  // The real popup (popup.html) for a leader passed at each tier, falling to
+  // the start of the tier below (droppedStreak).
   const side = () => document.querySelector('[name=side]:checked').value;
   function drop(t) {
     const n = TIER_MIN[t] + 2, s = side();
@@ -88,7 +113,10 @@
   }
   $('allDrops').insertAdjacentHTML('beforebegin', TIER_ORDER.map(t => '<button data-drop="' + t + '">' + TIER_LABEL[t] + ' ' + (TIER_MIN[t] + 2) + ' → ' + (droppedStreak(TIER_MIN[t] + 2) || 'out') + '</button>').join(' '));
   for (const b of document.querySelectorAll('[data-drop]')) b.onclick = () => drop(b.dataset.drop);
-  // One at a time: the popup's queue keeps only the newest waiting takeover. 4200ms pill + 280ms exit.
-  $('allDrops').onclick = () => TIER_ORDER.forEach((t, i) => setTimeout(drop, i * 4600, t));
+  // One at a time: the popup's queue keeps only the newest waiting takeover.
+  $('allDrops').onclick = () => TIER_ORDER.reduce((at, t) => {
+    setTimeout(drop, at, t);
+    return at + OT_SCENES[t][side() === 'mine' ? 'defeat' : 'victory'].ms + OT_HOLD + 400;
+  }, 0);
 </script>
 </body></html>

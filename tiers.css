@@ -133,6 +133,19 @@ svg.fire .orbit { transform-origin: 50% 50%; }
 .ms-singularity b { font-size: 23px; --ls: .42em; font-weight: 500; text-shadow: 0 1px 1px #000, 0 0 10px rgba(0, 0, 0, .9); }
 .ms-singularity .ms-line { display: block; width: 150px; height: 1px; margin-top: 2px; background: linear-gradient(90deg, transparent, #fff 30%, #fff 70%, transparent); opacity: 0; }
 
+.ms-death .ms-title small { max-width: 94%; overflow: hidden; text-overflow: ellipsis; }
+.ms-death .ms-title b span { display: inline-block; }
+
+/* Overtakes (streak-overtakes.js): each player's name and count ride under
+   their flame, full size in the middle and small at the sides, placed every
+   frame. The beaten name greys; its count shows the tier it drops to. */
+.ms-ot .ot-tag { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; transform-origin: 50% 0; white-space: nowrap; opacity: 0;
+  color: var(--ink, #fff); font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 12px rgba(0, 0, 0, .6); transition: color .5s; }
+.ms-ot .ot-tag b { --ls: .26em; display: block; max-width: 130px; overflow: hidden; text-overflow: ellipsis; font-size: 15px; font-weight: 700; line-height: 1.15; letter-spacing: var(--ls); padding-left: var(--ls); text-transform: uppercase; }
+.ms-ot .ot-n { display: block; font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.ms-ot .ot-tag small { font-size: calc(10px / var(--k, 1)); font-weight: 600;   /* stays 10px however small the tag is drawn */ letter-spacing: .18em; text-transform: uppercase; color: rgba(236, 238, 242, .78); opacity: 0; }
+.ms-ot .ot-down { color: #8f96a3; }
+
 @media (prefers-reduced-motion: reduce) {
   .wave-text, .flicker .fire, svg.fire :is(.ring, .core, .core path, .arc, .orbit) { animation: none !important; }
   .tier-blue svg.fire .core .arc { opacity: .6; }
